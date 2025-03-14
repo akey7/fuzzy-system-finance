@@ -91,8 +91,8 @@ if __name__ == "__main__":
     # with open(aapl_history_filename, "w") as file:
     #     json.dump(all_data, file, indent=4, sort_keys=True)
 
-    # Scrape the other 6
-    symbols = ["GOOG", "AMZN", "META", "MSFT", "NVDA", "TSLA"]
+    # Scrape the other 5
+    symbols = ["GOOG", "AMZN", "MSFT", "NVDA", "TSLA"]
     for symbol in symbols:
         params = {
             "access_key": marketstack_api_key,
