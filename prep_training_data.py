@@ -45,6 +45,15 @@ def make_long_df():
 
 
 def make_adj_close_df(df_long):
+    """
+    Save a wide dataframe with date as the index and columns of adj_close
+    prices.
+
+    Parameters
+    ----------
+    df_long : pd.DataFrame
+        Long dataframe output from make_long_df()
+    """
     df_wide = df_long.pivot(index="date", columns="symbol", values="adj_close")
     df_wide.reset_index(names='date')
     df_wide_filename = os.path.join("output", "stocks_adj_close.csv")
