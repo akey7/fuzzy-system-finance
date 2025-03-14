@@ -1,34 +1,87 @@
 import os
 import json
 import requests
+import time
 from dotenv import load_dotenv
 
 
-def main():
-    marketstack_api_key = os.getenv("MARKETSTACK_API_KEY")
+def fetch_all_results(base_url, params, delay=5):
+    """
+    Fetches paginated data from MarketStack API
+    and returns a concatenated list of all results.
 
-    # With query parameters
-    params = {
-        "access_key": marketstack_api_key,
-        "symbols": "AAPL",
-        "date_from": "2025-01-02",
-        "date_to": "2025-03-12",
-        "limit": 100,
-    }
-    response = requests.get("http://api.marketstack.com/v2/eod", params=params)
+    Parameters
+    ----------
+    base_url : str
+        The base URL of the request
 
-    # Check if the request was successful
-    if response.status_code == 200:
-        # Parse the JSON response
+    params : dict
+        Dictionary of parameters for the request
+
+    delay : int, optional
+        Defaults to 5. Delay between API calls in seconds.
+
+    Returns
+    -------
+    list
+        List with all results concatenated.
+    """
+    all_results = []
+    offset = 0
+    limit = params["limit"]
+
+    while True:
+        params["offset"] = offset
+        print(f"Fetching offset {offset}")
+        time.sleep(delay)
+        response = requests.get(base_url, params=params)
+
+        if response.status_code != 200:
+            print(f"Error: {response.status_code}, {response.text}")
+            break
+
         data = response.json()
-        output_filename = os.path.join("output", "latest_request.json")
-        with open(output_filename, "w") as file:
-            json.dump(data, file, indent=4, sort_keys=True)
-        print(data)
-    else:
-        print(f"Request failed with status code: {response.status_code}")
+        results = data.get("data", [])
+        pagination = data.get("pagination", {})
+        print(pagination)
+
+        all_results.extend(results)
+
+        total = pagination.get("total", 0)
+
+        # If we've fetched all available records, stop
+        if offset + limit >= total:
+            break
+
+        # Move to the next offset
+        offset += limit
+
+        # Delay for the next API call
+        time.sleep(delay)
+
+    return all_results
 
 
 if __name__ == "__main__":
+    # Load the .env file
     load_dotenv()
-    main()
+
+    # Setup the API call
+    marketstack_api_key = os.getenv("MARKETSTACK_API_KEY")
+    base_url = "http://api.marketstack.com/v2/eod"
+    params = {
+        "access_key": marketstack_api_key,
+        "symbols": "AAPL",
+        "date_from": "2015-04-01",
+        "date_to": "2025-03-12",
+        "limit": 3000,
+    }
+
+    # Fetch the dadta and report the number of records
+    all_data = fetch_all_results(base_url, params)
+    print(f"Fetched {len(all_data)} records")
+
+    # Write the AAPL history
+    aapl_history_filename = os.path.join("output", "AAPL_history.json")
+    with open(aapl_history_filename, "w") as file:
+        json.dump(all_data, file, indent=4, sort_keys=True)
