@@ -66,14 +66,17 @@ if __name__ == "__main__":
     # Load the .env file
     load_dotenv()
 
-    # Setup the API call
+    date_from = "2015-04-01"
+    date_to = "2025-03-12"
+
+    # Setup the API call for AAPL history
     marketstack_api_key = os.getenv("MARKETSTACK_API_KEY")
     base_url = "http://api.marketstack.com/v2/eod"
     params = {
         "access_key": marketstack_api_key,
         "symbols": "AAPL",
-        "date_from": "2015-04-01",
-        "date_to": "2025-03-12",
+        "date_from": date_from,
+        "date_to": date_to,
         "limit": 3000,
     }
 
@@ -85,3 +88,17 @@ if __name__ == "__main__":
     aapl_history_filename = os.path.join("output", "AAPL_history.json")
     with open(aapl_history_filename, "w") as file:
         json.dump(all_data, file, indent=4, sort_keys=True)
+
+    # Scrape the other 6
+    symbols = ["GOOG", "AMZN", "META", "MSFT", "NVDA", "TSLA"]
+    for symbol in symbols:
+        params = {
+            "access_key": marketstack_api_key,
+            "symbols": symbol,
+            "date_from": date_from,
+            "date_to": date_to,
+            "limit": 3000,
+        }
+        history_filename = os.path.join("output", f"{symbol}_history.json")
+        with open(history_filename, "w") as file:
+            json.dump(all_data, file, indent=4, sort_keys=True)
