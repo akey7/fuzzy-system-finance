@@ -3,9 +3,9 @@ import gradio as gr
 
 def main():
     with gr.Blocks() as app:
-        gr.Markdown("fuzzy-system-finance coming soon!")
+        gr.Markdown("fuzzy-system-finance coming soon! Message two.")
 
-    app.launch(share=False)
+    app.launch()
 
 
 if __name__ == "__main__":
