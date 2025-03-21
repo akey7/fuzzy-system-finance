@@ -48,7 +48,7 @@ class FSFinance:
         with gr.Blocks() as app:
 
             def ticker_change(choice):
-                print(f"You selected {choice}")
+                return self.timeseries_plot(choice)
 
             gr.Markdown("# fuzzy-system-finance")
             ticker_dropdown = gr.Dropdown(
@@ -57,7 +57,7 @@ class FSFinance:
                 value=self.tickers()[0],
             )
             ts_plot = self.timeseries_plot(self.tickers()[0])
-            ticker_dropdown.change(ticker_change, inputs=[ticker_dropdown])
+            ticker_dropdown.change(ticker_change, inputs=[ticker_dropdown], outputs=[ts_plot])
 
         app.launch()
 
