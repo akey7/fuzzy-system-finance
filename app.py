@@ -9,11 +9,23 @@ class FSFinance:
         self.df = pd.read_csv(df_filename)
         self.df["pred_date"] = pd.to_datetime(self.df["pred_date"])
         self.df.set_index("pred_date", inplace=True)
-        print(self.df.columns)
+
+    def tickers(self):
+        return sorted([ticker for ticker in self.df.columns if "_pred" not in ticker])
 
     def run(self):
         with gr.Blocks() as app:
-            gr.Markdown("fuzzy-system-finance coming soon! Message two.")
+
+            def ticker_change(choice):
+                print(f"You selected {choice}")
+
+            gr.Markdown("# fuzzy-system-finance")
+            ticker_dropdown = gr.Dropdown(
+                choices=self.tickers(),
+                label="Select an option",
+                value=self.tickers()[0]
+            )
+            ticker_dropdown.change(ticker_change, inputs=[ticker_dropdown])
 
         app.launch()
 
