@@ -27,6 +27,9 @@ class FSFinance:
                 else f"{x.replace('_pred', '')} (Predicted)"
             )
         )
+        select_df["Adjusted Close ($)"] = select_df["Adjusted Close ($)"].apply(
+            lambda x: round(x, 2)
+        )
         select_df.rename(columns={"pred_date": "Date"}, inplace=True)
         return select_df
 
@@ -57,7 +60,9 @@ class FSFinance:
                 value=self.tickers()[0],
             )
             ts_plot = self.timeseries_plot(self.tickers()[0])
-            ticker_dropdown.change(ticker_change, inputs=[ticker_dropdown], outputs=[ts_plot])
+            ticker_dropdown.change(
+                ticker_change, inputs=[ticker_dropdown], outputs=[ts_plot]
+            )
 
         app.launch()
 
