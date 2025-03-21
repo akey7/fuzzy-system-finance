@@ -6,14 +6,38 @@ import pandas as pd
 
 class FSFinance:
     def __init__(self):
+        """
+        Instantiate the app class and read the csv that contains
+        the data to be visualized.
+        """
         df_filename = os.path.join("input", "All Forecast 2025-02-24 to 2025-03-21.csv")
         self.df = pd.read_csv(df_filename)
         self.df["pred_date"] = pd.to_datetime(self.df["pred_date"])
 
     def tickers(self):
+        """
+        Return the sorted tickers available for visualization from the
+        underlying DataFrame.
+        """
         return sorted([ticker for ticker in self.df.columns if "pred" not in ticker])
 
     def long_df(self, ticker):
+        """
+        Isolate predicted and actual adjusted close prices of
+        a ticker and pivots the wide dataframe with the predicted 
+        and actual them into a long format suitable for
+        visualization with gr.LinePlot().
+
+        Parameters
+        ----------
+        ticker : str
+            The ticker to be plotted.
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame for plotting with gr.LinePlot().
+        """
         select_df = self.df[["pred_date", ticker, f"{ticker}_pred"]].copy()
         select_df = select_df.melt(
             id_vars="pred_date",
@@ -39,6 +63,20 @@ class FSFinance:
         return select_df
 
     def timeseries_plot(self, ticker):
+        """
+        Create a gr.LinePlot() with actual and predicted prices for
+        a ticker.
+
+        Parameters
+        ----------
+        ticker : str
+            The ticker to be plotted.
+
+        Returns
+        -------
+        gr.LinePlot
+            An interactive LinePlot with ticker information.
+        """
         long_df = self.long_df(ticker)
         min_value = 0.9 * min(long_df.loc[:, "Adjusted Close ($)"])
         max_value = 1.1 * max(long_df.loc[:, "Adjusted Close ($)"])
@@ -53,6 +91,9 @@ class FSFinance:
         return chart
 
     def run(self):
+        """
+        Run the Gradio app.
+        """
         with gr.Blocks() as app:
 
             def ticker_change(choice):
