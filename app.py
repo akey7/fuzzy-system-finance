@@ -36,6 +36,7 @@ class FSFinance:
         max_value = 1.1 * max(long_df.loc[:, "Adjusted Close ($)"])
         chart = gr.LinePlot(
             value=long_df,
+            title=ticker,
             x="Date",
             y="Adjusted Close ($)",
             color="Ticker",
@@ -55,7 +56,7 @@ class FSFinance:
                 label="Select an option",
                 value=self.tickers()[0],
             )
-            ts_plot = self.timeseries_plot("AAPL")
+            ts_plot = self.timeseries_plot(self.tickers()[0])
             ticker_dropdown.change(ticker_change, inputs=[ticker_dropdown])
 
         app.launch()
