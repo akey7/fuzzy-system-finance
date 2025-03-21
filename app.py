@@ -13,14 +13,21 @@ class FSFinance:
         return sorted([ticker for ticker in self.df.columns if "pred" not in ticker])
 
     def long_df(self, ticker):
-        print(self.df.head())
         select_df = self.df[["pred_date", ticker, f"{ticker}_pred"]].copy()
         select_df = select_df.melt(
             id_vars="pred_date",
             value_vars=[ticker, f"{ticker}_pred"],
             var_name="Ticker",
-            value_name="Adjusted Close",
+            value_name="Adjusted Close ($)",
         )
+        select_df["Ticker"] = select_df["Ticker"].apply(
+            lambda x: (
+                f"{x} (Actual)"
+                if "pred" not in x
+                else f"{x.replace('_pred', '')} (Predicted)"
+            )
+        )
+        select_df.rename(columns={"pred_date": "Date"}, inplace=True)
         return select_df
 
     def run(self):
@@ -37,8 +44,8 @@ class FSFinance:
             )
             ts_plot = gr.LinePlot(
                 value=self.long_df("AAPL"),
-                x="pred_date",
-                y="Adjusted Close",
+                x="Date",
+                y="Adjusted Close ($)",
                 color="Ticker",
             )
             ticker_dropdown.change(ticker_change, inputs=[ticker_dropdown])
