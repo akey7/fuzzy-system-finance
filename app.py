@@ -1,4 +1,5 @@
 import os
+import pytz
 import gradio as gr
 import pandas as pd
 
@@ -29,6 +30,10 @@ class FSFinance:
         )
         select_df["Adjusted Close ($)"] = select_df["Adjusted Close ($)"].apply(
             lambda x: round(x, 2)
+        )
+        eastern = pytz.timezone("US/Eastern")
+        select_df["pred_date"] = select_df["pred_date"].apply(
+            lambda x: pd.Timestamp(x.replace(hour=16, minute=0, second=0), tz=eastern)
         )
         select_df.rename(columns={"pred_date": "Date"}, inplace=True)
         return select_df
