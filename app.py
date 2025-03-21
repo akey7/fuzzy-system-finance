@@ -30,6 +30,19 @@ class FSFinance:
         select_df.rename(columns={"pred_date": "Date"}, inplace=True)
         return select_df
 
+    def timeseries_plot(self, ticker):
+        long_df = self.long_df(ticker)
+        min_value = 0.9 * min(long_df.loc[:, "Adjusted Close ($)"])
+        max_value = 1.1 * max(long_df.loc[:, "Adjusted Close ($)"])
+        chart = gr.LinePlot(
+            value=long_df,
+            x="Date",
+            y="Adjusted Close ($)",
+            color="Ticker",
+            y_lim=[min_value, max_value],
+        )
+        return chart
+
     def run(self):
         with gr.Blocks() as app:
 
@@ -42,12 +55,7 @@ class FSFinance:
                 label="Select an option",
                 value=self.tickers()[0],
             )
-            ts_plot = gr.LinePlot(
-                value=self.long_df("AAPL"),
-                x="Date",
-                y="Adjusted Close ($)",
-                color="Ticker",
-            )
+            ts_plot = self.timeseries_plot("AAPL")
             ticker_dropdown.change(ticker_change, inputs=[ticker_dropdown])
 
         app.launch()
