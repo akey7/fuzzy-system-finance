@@ -6,3 +6,4 @@ python-dotenv
 gradio
 huggingface_hub
 datasets
+python-dotenv

@@ -2,6 +2,9 @@ import os
 import pytz
 import gradio as gr
 import pandas as pd
+from huggingface_hub import login
+from datasets import load_dataset
+from dotenv import load_dotenv
 
 
 class FSFinance:
@@ -10,8 +13,11 @@ class FSFinance:
         Instantiate the app class and read the csv that contains
         the data to be visualized.
         """
-        df_filename = os.path.join("input", "All Forecast 2025-02-24 to 2025-03-21.csv")
-        self.df = pd.read_csv(df_filename)
+        load_dotenv()
+        hf_token = os.getenv("HF_TOKEN")
+        login(hf_token, add_to_git_credential=True)
+        dataset = load_dataset("akey7/fsf-ticker-preds-vs-actuals")
+        self.df = dataset["train"].to_pandas()
         self.df["pred_date"] = pd.to_datetime(self.df["pred_date"])
 
     def tickers(self):
@@ -24,7 +30,7 @@ class FSFinance:
     def long_df(self, ticker):
         """
         Isolate predicted and actual adjusted close prices of
-        a ticker and pivots the wide dataframe with the predicted 
+        a ticker and pivots the wide dataframe with the predicted
         and actual them into a long format suitable for
         visualization with gr.LinePlot().
 
