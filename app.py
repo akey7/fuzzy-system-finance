@@ -5,6 +5,7 @@ import pandas as pd
 from huggingface_hub import login
 from datasets import load_dataset
 from dotenv import load_dotenv
+from sklearn.metrics import mean_absolute_error
 
 
 class FSFinance:
@@ -55,7 +56,7 @@ class FSFinance:
             lambda x: (
                 f"{x} (Actual)"
                 if "pred" not in x
-                else f"{x.replace('_pred', '')} (Predicted)"
+                else f"{x.replace('_pred', '')} (ARIMA Predicted)"
             )
         )
         select_df["Adjusted Close ($)"] = select_df["Adjusted Close ($)"].apply(
@@ -95,6 +96,16 @@ class FSFinance:
             y_lim=[min_value, max_value],
         )
         return chart
+    
+    def calc_mae(self, ticker):
+        y_actual = self.df[ticker]
+        y_pred = self.df[f"{ticker}_pred"]
+        mae = mean_absolute_error(y_actual, y_pred)
+        return mae
+    
+    def mae_message(self, ticker):
+        mae_fmt = f"{self.calc_mae(ticker):.2f}"
+        return f"### Mean Absolute Error (MAE):{os.linesep}# {mae_fmt}"
 
     def run(self):
         """
@@ -103,17 +114,22 @@ class FSFinance:
         with gr.Blocks() as app:
 
             def ticker_change(choice):
-                return self.timeseries_plot(choice)
+                return self.timeseries_plot(choice), self.mae_message(choice)
 
-            gr.Markdown("# fuzzy-system-finance")
-            ticker_dropdown = gr.Dropdown(
-                choices=self.tickers(),
-                label="Select an option",
-                value=self.tickers()[0],
-            )
-            ts_plot = self.timeseries_plot(self.tickers()[0])
+            with gr.Row(equal_height=True):
+                with gr.Column():
+                    gr.Markdown("### Select a ticker from the menu below:")
+                    ticker_dropdown = gr.Dropdown(
+                        choices=self.tickers(),
+                        label="Select an option",
+                        value=self.tickers()[0],
+                    )
+                with gr.Column():
+                    mae_md = gr.Markdown(self.mae_message(self.tickers()[0]), container=True)
+            with gr.Row():
+                ts_plot = self.timeseries_plot(self.tickers()[0])
             ticker_dropdown.change(
-                ticker_change, inputs=[ticker_dropdown], outputs=[ts_plot]
+                ticker_change, inputs=[ticker_dropdown], outputs=[ts_plot, mae_md]
             )
 
         app.launch()
