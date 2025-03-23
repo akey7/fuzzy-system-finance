@@ -5,6 +5,7 @@ import pandas as pd
 from huggingface_hub import login
 from datasets import load_dataset
 from dotenv import load_dotenv
+from sklearn.metrics import mean_absolute_error
 
 
 class FSFinance:
@@ -96,8 +97,15 @@ class FSFinance:
         )
         return chart
     
-    def mae(self):
-        return 0.00
+    def calc_mae(self, ticker):
+        y_actual = self.df[ticker]
+        y_pred = self.df[f"{ticker}_pred"]
+        mae = mean_absolute_error(y_actual, y_pred)
+        return mae
+    
+    def mae_message(self, ticker):
+        mae_fmt = f"{self.calc_mae(ticker):.2f}"
+        return f"### Mean Absolute Error (MAE):{os.linesep}# {mae_fmt}"
 
     def run(self):
         """
@@ -106,7 +114,7 @@ class FSFinance:
         with gr.Blocks() as app:
 
             def ticker_change(choice):
-                return self.timeseries_plot(choice)
+                return self.timeseries_plot(choice), self.mae_message(choice)
 
             with gr.Row(equal_height=True):
                 with gr.Column():
@@ -117,11 +125,11 @@ class FSFinance:
                         value=self.tickers()[0],
                     )
                 with gr.Column():
-                    gr.Markdown(f"### Mean Absolute Error (MAE):{os.linesep}# {self.mae()}", container=True)
+                    mae_md = gr.Markdown(self.mae_message(self.tickers()[0]), container=True)
             with gr.Row():
                 ts_plot = self.timeseries_plot(self.tickers()[0])
             ticker_dropdown.change(
-                ticker_change, inputs=[ticker_dropdown], outputs=[ts_plot]
+                ticker_change, inputs=[ticker_dropdown], outputs=[ts_plot, mae_md]
             )
 
         app.launch()

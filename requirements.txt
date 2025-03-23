@@ -7,3 +7,4 @@ gradio
 huggingface_hub
 datasets
 python-dotenv
+scikit-learn
