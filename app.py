@@ -55,7 +55,7 @@ class FSFinance:
             lambda x: (
                 f"{x} (Actual)"
                 if "pred" not in x
-                else f"{x.replace('_pred', '')} (Predicted)"
+                else f"{x.replace('_pred', '')} (ARIMA Predicted)"
             )
         )
         select_df["Adjusted Close ($)"] = select_df["Adjusted Close ($)"].apply(
@@ -95,6 +95,9 @@ class FSFinance:
             y_lim=[min_value, max_value],
         )
         return chart
+    
+    def mae(self):
+        return 0.00
 
     def run(self):
         """
@@ -105,13 +108,18 @@ class FSFinance:
             def ticker_change(choice):
                 return self.timeseries_plot(choice)
 
-            gr.Markdown("# fuzzy-system-finance")
-            ticker_dropdown = gr.Dropdown(
-                choices=self.tickers(),
-                label="Select an option",
-                value=self.tickers()[0],
-            )
-            ts_plot = self.timeseries_plot(self.tickers()[0])
+            with gr.Row(equal_height=True):
+                with gr.Column():
+                    gr.Markdown("### Select a ticker from the menu below:")
+                    ticker_dropdown = gr.Dropdown(
+                        choices=self.tickers(),
+                        label="Select an option",
+                        value=self.tickers()[0],
+                    )
+                with gr.Column():
+                    gr.Markdown(f"### Mean Absolute Error (MAE):{os.linesep}# {self.mae()}", container=True)
+            with gr.Row():
+                ts_plot = self.timeseries_plot(self.tickers()[0])
             ticker_dropdown.change(
                 ticker_change, inputs=[ticker_dropdown], outputs=[ts_plot]
             )
