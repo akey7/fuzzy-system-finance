@@ -118,10 +118,11 @@ class FSFinance:
 
             with gr.Row(equal_height=True):
                 with gr.Column():
-                    gr.Markdown("### Select a ticker from the menu below:")
+                    gr.Markdown("### Select a ticker or index:")
                     ticker_dropdown = gr.Dropdown(
                         choices=self.tickers(),
-                        label="Select an option",
+                        label=None,
+                        show_label=False,
                         value=self.tickers()[0],
                     )
                 with gr.Column():
