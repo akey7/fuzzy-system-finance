@@ -98,8 +98,8 @@ class FSFinance:
         return chart
     
     def calc_mae(self, ticker):
-        y_actual = self.df[ticker]
-        y_pred = self.df[f"{ticker}_pred"]
+        y_actual = self.df[ticker][:-1]
+        y_pred = self.df[f"{ticker}_pred"][:-1]
         mae = mean_absolute_error(y_actual, y_pred)
         return mae
     
