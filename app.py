@@ -17,7 +17,8 @@ class FSFinance:
         load_dotenv()
         hf_token = os.getenv("HF_TOKEN")
         login(hf_token, add_to_git_credential=True)
-        dataset = load_dataset("akey7/fsf-ticker-preds-vs-actuals")
+        hf_datset = os.getenv("HF_DATASET")
+        dataset = load_dataset(hf_datset)
         self.df = dataset["train"].to_pandas()
         self.df["pred_date"] = pd.to_datetime(self.df["pred_date"])
 
