@@ -125,11 +125,15 @@ class FSFinance:
         rmse_hw = root_mean_squared_error(y_actual, y_pred_hw)
         return rmse_arima, rmse_hw
 
-    def rmse_message(self, ticker):
-        rmse_arima, rmse_hw = self.calc_rmse(ticker)
+    def arima_rmse_message(self, ticker):
+        rmse_arima, _ = self.calc_rmse(ticker)
         rmse_arima_fmt = f"{rmse_arima:.2f}"
+        return f"### ARIMA RMSE:{os.linesep}# {rmse_arima_fmt}"
+
+    def hw_rmse_message(self, ticker):
+        _, rmse_hw = self.calc_rmse(ticker)
         rmse_hw_fmt = f"{rmse_hw:.2f}"
-        return f"### ARIMA RMSE: {rmse_arima_fmt}{os.linesep}### Holt-Winters RMSE: {rmse_hw_fmt}"
+        return f"### Holt-Winters RMSE:{os.linesep}# {rmse_hw_fmt}"
 
     def run(self):
         """
@@ -138,7 +142,11 @@ class FSFinance:
         with gr.Blocks() as app:
 
             def ticker_change(choice):
-                return self.timeseries_plot(choice), self.rmse_message(choice)
+                return (
+                    self.timeseries_plot(choice),
+                    self.arima_rmse_message(choice),
+                    self.hw_rmse_message(choice),
+                )
 
             with gr.Row(equal_height=True):
                 with gr.Column():
@@ -149,14 +157,21 @@ class FSFinance:
                         show_label=False,
                         value=self.tickers()[0],
                     )
+            with gr.Row():
                 with gr.Column():
-                    mae_md = gr.Markdown(
-                        self.rmse_message(self.tickers()[0]), container=True
+                    arima_rmse_md = gr.Markdown(
+                        self.arima_rmse_message(self.tickers()[0]), container=True
+                    )
+                with gr.Column():
+                    hw_rmse_md = gr.Markdown(
+                        self.hw_rmse_message(self.tickers()[0]), container=True
                     )
             with gr.Row():
                 ts_plot = self.timeseries_plot(self.tickers()[0])
             ticker_dropdown.change(
-                ticker_change, inputs=[ticker_dropdown], outputs=[ts_plot, mae_md]
+                ticker_change,
+                inputs=[ticker_dropdown],
+                outputs=[ts_plot, arima_rmse_md, hw_rmse_md],
             )
 
         app.launch()
