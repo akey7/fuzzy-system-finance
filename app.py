@@ -5,7 +5,7 @@ import pandas as pd
 from huggingface_hub import login
 from datasets import load_dataset
 from dotenv import load_dotenv
-from sklearn.metrics import mean_absolute_error
+from sklearn.metrics import root_mean_squared_error
 
 
 class FSFinance:
@@ -27,7 +27,30 @@ class FSFinance:
         Return the sorted tickers available for visualization from the
         underlying DataFrame.
         """
-        return sorted([ticker for ticker in self.df.columns if "pred" not in ticker])
+        return sorted([ticker for ticker in self.df.columns if "_" not in ticker])
+
+    def friendly_col_name(self, col_name):
+        """
+        Return a user-friendly version of a column name specifying
+        whether the vlaue is actual or modeled, and if modeled,
+        what kind of model it is.
+
+        Parameters
+        ----------
+        col_name : str
+            Original column name
+
+        Returns
+        -------
+        str
+            User-friendly column name.
+        """
+        if "_arima" in col_name:
+            return f"{col_name.replace('_arima', '')} (ARIMA model)"
+        elif "_hw" in col_name:
+            return f"{col_name.replace('_hw', '')} (Holt-Winters model)"
+        else:
+            return f"{col_name} (Actual)"
 
     def long_df(self, ticker):
         """
@@ -46,20 +69,16 @@ class FSFinance:
         pd.DataFrame
             DataFrame for plotting with gr.LinePlot().
         """
-        select_df = self.df[["pred_date", ticker, f"{ticker}_pred"]].copy()
+        select_df = self.df[
+            ["pred_date", ticker, f"{ticker}_arima", f"{ticker}_hw"]
+        ].copy()
         select_df = select_df.melt(
             id_vars="pred_date",
-            value_vars=[ticker, f"{ticker}_pred"],
+            value_vars=[ticker, f"{ticker}_arima", f"{ticker}_hw"],
             var_name="Ticker",
             value_name="Adjusted Close ($)",
         )
-        select_df["Ticker"] = select_df["Ticker"].apply(
-            lambda x: (
-                f"{x} (Actual)"
-                if "pred" not in x
-                else f"{x.replace('_pred', '')} (ARIMA Predicted)"
-            )
-        )
+        select_df["Ticker"] = select_df["Ticker"].apply(self.friendly_col_name)
         select_df["Adjusted Close ($)"] = select_df["Adjusted Close ($)"].apply(
             lambda x: round(x, 2)
         )
@@ -97,16 +116,24 @@ class FSFinance:
             y_lim=[min_value, max_value],
         )
         return chart
-    
-    def calc_mae(self, ticker):
+
+    def calc_rmse(self, ticker):
         y_actual = self.df[ticker][:-1]
-        y_pred = self.df[f"{ticker}_pred"][:-1]
-        mae = mean_absolute_error(y_actual, y_pred)
-        return mae
-    
-    def mae_message(self, ticker):
-        mae_fmt = f"{self.calc_mae(ticker):.2f}"
-        return f"### Mean Absolute Error (MAE):{os.linesep}# {mae_fmt}"
+        y_pred_arima = self.df[f"{ticker}_arima"][:-1]
+        y_pred_hw = self.df[f"{ticker}_hw"][:-1]
+        rmse_arima = root_mean_squared_error(y_actual, y_pred_arima)
+        rmse_hw = root_mean_squared_error(y_actual, y_pred_hw)
+        return rmse_arima, rmse_hw
+
+    def arima_rmse_message(self, ticker):
+        rmse_arima, _ = self.calc_rmse(ticker)
+        rmse_arima_fmt = f"{rmse_arima:.2f}"
+        return f"### ARIMA RMSE:{os.linesep}# {rmse_arima_fmt}"
+
+    def hw_rmse_message(self, ticker):
+        _, rmse_hw = self.calc_rmse(ticker)
+        rmse_hw_fmt = f"{rmse_hw:.2f}"
+        return f"### Holt-Winters RMSE:{os.linesep}# {rmse_hw_fmt}"
 
     def run(self):
         """
@@ -115,7 +142,11 @@ class FSFinance:
         with gr.Blocks() as app:
 
             def ticker_change(choice):
-                return self.timeseries_plot(choice), self.mae_message(choice)
+                return (
+                    self.timeseries_plot(choice),
+                    self.arima_rmse_message(choice),
+                    self.hw_rmse_message(choice),
+                )
 
             with gr.Row(equal_height=True):
                 with gr.Column():
@@ -126,12 +157,21 @@ class FSFinance:
                         show_label=False,
                         value=self.tickers()[0],
                     )
+            with gr.Row():
                 with gr.Column():
-                    mae_md = gr.Markdown(self.mae_message(self.tickers()[0]), container=True)
+                    arima_rmse_md = gr.Markdown(
+                        self.arima_rmse_message(self.tickers()[0]), container=True
+                    )
+                with gr.Column():
+                    hw_rmse_md = gr.Markdown(
+                        self.hw_rmse_message(self.tickers()[0]), container=True
+                    )
             with gr.Row():
                 ts_plot = self.timeseries_plot(self.tickers()[0])
             ticker_dropdown.change(
-                ticker_change, inputs=[ticker_dropdown], outputs=[ts_plot, mae_md]
+                ticker_change,
+                inputs=[ticker_dropdown],
+                outputs=[ts_plot, arima_rmse_md, hw_rmse_md],
             )
 
         app.launch()
