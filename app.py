@@ -5,7 +5,7 @@ import pandas as pd
 from huggingface_hub import login
 from datasets import load_dataset
 from dotenv import load_dotenv
-from sklearn.metrics import mean_absolute_error
+from sklearn.metrics import root_mean_squared_error
 
 
 class FSFinance:
@@ -117,15 +117,19 @@ class FSFinance:
         )
         return chart
 
-    def calc_mae(self, ticker):
+    def calc_rmse(self, ticker):
         y_actual = self.df[ticker][:-1]
-        y_pred = self.df[f"{ticker}_arima"][:-1]
-        mae = mean_absolute_error(y_actual, y_pred)
-        return mae
+        y_pred_arima = self.df[f"{ticker}_arima"][:-1]
+        y_pred_hw = self.df[f"{ticker}_hw"][:-1]
+        rmse_arima = root_mean_squared_error(y_actual, y_pred_arima)
+        rmse_hw = root_mean_squared_error(y_actual, y_pred_hw)
+        return rmse_arima, rmse_hw
 
-    def mae_message(self, ticker):
-        mae_fmt = f"{self.calc_mae(ticker):.2f}"
-        return f"### Mean Absolute Error (MAE):{os.linesep}# {mae_fmt}"
+    def rmse_message(self, ticker):
+        rmse_arima, rmse_hw = self.calc_rmse(ticker)
+        rmse_arima_fmt = f"{rmse_arima:.2f}"
+        rmse_hw_fmt = f"{rmse_hw:.2f}"
+        return f"### ARIMA RMSE: {rmse_arima_fmt}{os.linesep}### Holt-Winters RMSE: {rmse_hw_fmt}"
 
     def run(self):
         """
@@ -134,7 +138,7 @@ class FSFinance:
         with gr.Blocks() as app:
 
             def ticker_change(choice):
-                return self.timeseries_plot(choice), self.mae_message(choice)
+                return self.timeseries_plot(choice), self.rmse_message(choice)
 
             with gr.Row(equal_height=True):
                 with gr.Column():
@@ -147,7 +151,7 @@ class FSFinance:
                     )
                 with gr.Column():
                     mae_md = gr.Markdown(
-                        self.mae_message(self.tickers()[0]), container=True
+                        self.rmse_message(self.tickers()[0]), container=True
                     )
             with gr.Row():
                 ts_plot = self.timeseries_plot(self.tickers()[0])
