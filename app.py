@@ -27,7 +27,30 @@ class FSFinance:
         Return the sorted tickers available for visualization from the
         underlying DataFrame.
         """
-        return sorted([ticker for ticker in self.df.columns if "pred" not in ticker])
+        return sorted([ticker for ticker in self.df.columns if "_" not in ticker])
+
+    def friendly_col_name(self, col_name):
+        """
+        Return a user-friendly version of a column name specifying
+        whether the vlaue is actual or modeled, and if modeled,
+        what kind of model it is.
+
+        Parameters
+        ----------
+        col_name : str
+            Original column name
+
+        Returns
+        -------
+        str
+            User-friendly column name.
+        """
+        if "_arima" in col_name:
+            return f"{col_name} (ARIMA model)"
+        elif "_hw" in col_name:
+            return f"{col_name} (Holt-Winters model)"
+        else:
+            return f"{col_name} (Actual)"
 
     def long_df(self, ticker):
         """
@@ -46,20 +69,14 @@ class FSFinance:
         pd.DataFrame
             DataFrame for plotting with gr.LinePlot().
         """
-        select_df = self.df[["pred_date", ticker, f"{ticker}_pred"]].copy()
+        select_df = self.df[["pred_date", ticker, f"{ticker}_arima", f"{ticker}_hw"]].copy()
         select_df = select_df.melt(
             id_vars="pred_date",
-            value_vars=[ticker, f"{ticker}_pred"],
+            value_vars=[ticker, f"{ticker}_arima", f"{ticker}_hw"],
             var_name="Ticker",
             value_name="Adjusted Close ($)",
         )
-        select_df["Ticker"] = select_df["Ticker"].apply(
-            lambda x: (
-                f"{x} (Actual)"
-                if "pred" not in x
-                else f"{x.replace('_pred', '')} (ARIMA Predicted)"
-            )
-        )
+        select_df["Ticker"] = select_df["Ticker"].apply(self.friendly_col_name)
         select_df["Adjusted Close ($)"] = select_df["Adjusted Close ($)"].apply(
             lambda x: round(x, 2)
         )
@@ -100,7 +117,7 @@ class FSFinance:
     
     def calc_mae(self, ticker):
         y_actual = self.df[ticker][:-1]
-        y_pred = self.df[f"{ticker}_pred"][:-1]
+        y_pred = self.df[f"{ticker}_arima"][:-1]
         mae = mean_absolute_error(y_actual, y_pred)
         return mae
     
