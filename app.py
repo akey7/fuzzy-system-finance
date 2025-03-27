@@ -46,9 +46,9 @@ class FSFinance:
             User-friendly column name.
         """
         if "_arima" in col_name:
-            return f"{col_name} (ARIMA model)"
+            return f"{col_name.replace('_arima', '')} (ARIMA model)"
         elif "_hw" in col_name:
-            return f"{col_name} (Holt-Winters model)"
+            return f"{col_name.replace('_hw', '')} (Holt-Winters model)"
         else:
             return f"{col_name} (Actual)"
 
@@ -69,7 +69,9 @@ class FSFinance:
         pd.DataFrame
             DataFrame for plotting with gr.LinePlot().
         """
-        select_df = self.df[["pred_date", ticker, f"{ticker}_arima", f"{ticker}_hw"]].copy()
+        select_df = self.df[
+            ["pred_date", ticker, f"{ticker}_arima", f"{ticker}_hw"]
+        ].copy()
         select_df = select_df.melt(
             id_vars="pred_date",
             value_vars=[ticker, f"{ticker}_arima", f"{ticker}_hw"],
@@ -114,13 +116,13 @@ class FSFinance:
             y_lim=[min_value, max_value],
         )
         return chart
-    
+
     def calc_mae(self, ticker):
         y_actual = self.df[ticker][:-1]
         y_pred = self.df[f"{ticker}_arima"][:-1]
         mae = mean_absolute_error(y_actual, y_pred)
         return mae
-    
+
     def mae_message(self, ticker):
         mae_fmt = f"{self.calc_mae(ticker):.2f}"
         return f"### Mean Absolute Error (MAE):{os.linesep}# {mae_fmt}"
@@ -144,7 +146,9 @@ class FSFinance:
                         value=self.tickers()[0],
                     )
                 with gr.Column():
-                    mae_md = gr.Markdown(self.mae_message(self.tickers()[0]), container=True)
+                    mae_md = gr.Markdown(
+                        self.mae_message(self.tickers()[0]), container=True
+                    )
             with gr.Row():
                 ts_plot = self.timeseries_plot(self.tickers()[0])
             ticker_dropdown.change(
