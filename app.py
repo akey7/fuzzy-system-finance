@@ -6,6 +6,8 @@ from huggingface_hub import login
 from datasets import load_dataset
 from dotenv import load_dotenv
 from sklearn.metrics import root_mean_squared_error
+import boto3
+from botocore.client import Config
 
 
 class FSFinance:
@@ -21,6 +23,21 @@ class FSFinance:
         dataset = load_dataset(hf_datset)
         self.df = dataset["train"].to_pandas()
         self.df["pred_date"] = pd.to_datetime(self.df["pred_date"])
+        region_name = os.getenv("FSF_FRONT_END_BUCKET_REGION")
+        endpoint_url = os.getenv("FSF_FRONT_END_BUCKET_ENDPOINT")
+        aws_access_key_id = os.getenv("FSF_FRONT_END_BUCKET_READ_ONLY_KEY_ID")
+        aws_secret_access_key = os.getenv("FSF_FRONT_END_BUCKET_READ_ONLY")
+        bucket_name = "portfolio-optimization"
+        object_name = "portfolio_optimization_plot_data.h5"
+        download_path = os.path.join("input", object_name)
+        session = boto3.session.Session()
+        client = session.client('s3',
+                                region_name=region_name,
+                                endpoint_url=endpoint_url,
+                                aws_access_key_id=aws_access_key_id,
+                                aws_secret_access_key=aws_secret_access_key,
+                                config=Config(signature_version='s3v4'))
+        client.download_file(bucket_name, object_name, download_path)
 
     def tickers(self):
         """
