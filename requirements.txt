@@ -4,7 +4,6 @@ pandas
 requests
 python-dotenv
 gradio
-huggingface_hub
 datasets
 python-dotenv
 scikit-learn
