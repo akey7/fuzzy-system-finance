@@ -6,10 +6,10 @@ from huggingface_hub import login
 from datasets import load_dataset
 from dotenv import load_dotenv
 from sklearn.metrics import root_mean_squared_error
-import boto3
-from botocore.client import Config
 import h5py
 import matplotlib.pyplot as plt
+import yaml
+from s3_downloader import S3Downloader
 
 
 class FSFinance:
@@ -25,26 +25,30 @@ class FSFinance:
         dataset = load_dataset(hf_datset)
         self.df = dataset["train"].to_pandas()
         self.df["pred_date"] = pd.to_datetime(self.df["pred_date"])
-        region_name = os.getenv("FSF_FRONT_END_BUCKET_REGION")
-        endpoint_url = os.getenv("FSF_FRONT_END_BUCKET_ENDPOINT")
-        aws_access_key_id = os.getenv("FSF_FRONT_END_BUCKET_READ_ONLY_KEY_ID")
-        aws_secret_access_key = os.getenv("FSF_FRONT_END_BUCKET_READ_ONLY")
-        bucket_name = "portfolio-optimization"
-        object_name = "portfolio_optimization_plot_data.h5"
-        self.portfolio_optimization_plot_data_path = os.path.join("input", object_name)
-        session = boto3.session.Session()
-        client = session.client(
-            "s3",
-            region_name=region_name,
-            endpoint_url=endpoint_url,
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            config=Config(signature_version="s3v4"),
+        folder_path = "input"
+        if not os.path.exists(folder_path):
+            os.mkdir(folder_path)
+            print(f"Folder '{folder_path}' created")
+        else:
+            print(f"Folder '{folder_path}' already exists")
+        bucket_name = os.getenv("PORTFOLIO_OPTIMIZATION_SPACE_NAME")
+        hdf5_filename = "portfolio_optimization_plot_data.h5"
+        optimization_metadata_filename = "optimization_metadata.yml"
+        self.portfolio_optimization_plot_data_path = os.path.join(
+            "input", hdf5_filename
         )
-        client.download_file(
-            bucket_name, object_name, self.portfolio_optimization_plot_data_path
+        optimization_metadata_path = os.path.join(
+            "input", optimization_metadata_filename
         )
-        print(f"Downloaded {self.portfolio_optimization_plot_data_path}")
+        s3d = S3Downloader()
+        s3d.download_file(
+            bucket_name, hdf5_filename, self.portfolio_optimization_plot_data_path
+        )
+        s3d.download_file(
+            bucket_name, optimization_metadata_filename, optimization_metadata_path
+        )
+        with open(optimization_metadata_path, "r") as file:
+            self.optimization_metadata = yaml.safe_load(file)
 
     def tickers(self):
         """
@@ -141,6 +145,24 @@ class FSFinance:
         )
         return chart
 
+    def optimization_metadata_markdown(self):
+        date_from = self.optimization_metadata["date_updated"]["date_from"]
+        date_to = self.optimization_metadata["date_updated"]["date_to"]
+        annualized_return = self.optimization_metadata["optimum_portfolio"][
+            "annualized_return"
+        ]
+        annualized_risk = self.optimization_metadata["optimum_portfolio"]["risk"]
+        lines = [
+            "## Porfolio optimization",
+            "### Tickers:",
+            f"{', '.join(self.optimization_metadata['tickers'])}",
+            "### Spanning Dates",
+            f"{date_from} to {date_to}",
+            "### Optimum portfolio annualized performance",
+            f"Return: {annualized_return:.2f}%, Risk: {annualized_risk:.2f}%",
+        ]
+        return os.linesep.join(lines)
+
     def plot_portfolio_optimization(self):
         with h5py.File(self.portfolio_optimization_plot_data_path, "r") as hf:
             efficient_frontier_xs = hf["efficient_frontier/xs"][:]
@@ -233,6 +255,11 @@ class FSFinance:
             with gr.Row():
                 portfolio_optimization_plot = gr.Plot(
                     self.plot_portfolio_optimization()
+                )
+
+            with gr.Row():
+                optimization_metadata_md = gr.Markdown(
+                    self.optimization_metadata_markdown()
                 )
 
             with gr.Row(equal_height=True):
