@@ -38,6 +38,7 @@ class FSFinance:
                                 aws_secret_access_key=aws_secret_access_key,
                                 config=Config(signature_version='s3v4'))
         client.download_file(bucket_name, object_name, download_path)
+        print(f"Downloaded {download_path}")
 
     def tickers(self):
         """
