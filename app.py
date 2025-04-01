@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from sklearn.metrics import root_mean_squared_error
 import h5py
 import matplotlib.pyplot as plt
+import yaml
 from s3_downloader import S3Downloader
 
 
@@ -32,16 +33,18 @@ class FSFinance:
             print(f"Folder '{folder_path}' already exists")
         bucket_name = os.getenv("PORTFOLIO_OPTIMIZATION_SPACE_NAME")
         hdf5_filename = "portfolio_optimization_plot_data.h5"
-        metadata_filename = "optimization_metadata.yml"
+        optimization_metadata_filename = "optimization_metadata.yml"
         self.portfolio_optimization_plot_data_path = os.path.join(
             "input", hdf5_filename
         )
-        self.metadata_path = os.path.join("input", metadata_filename)
+        optimization_metadata_path = os.path.join("input", optimization_metadata_filename)
         s3d = S3Downloader()
         s3d.download_file(
             bucket_name, hdf5_filename, self.portfolio_optimization_plot_data_path
         )
-        s3d.download_file(bucket_name, metadata_filename, self.metadata_path)
+        s3d.download_file(bucket_name, optimization_metadata_filename, optimization_metadata_path)
+        with open(optimization_metadata_path, 'r') as file:
+            self.optimization_metadata = yaml.safe_load(file)
 
     def tickers(self):
         """
