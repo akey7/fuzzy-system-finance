@@ -11,3 +11,4 @@ scikit-learn
 boto3
 h5py
 matplotlib
+pyyaml
