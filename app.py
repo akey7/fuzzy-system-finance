@@ -9,6 +9,7 @@ from sklearn.metrics import root_mean_squared_error
 import boto3
 from botocore.client import Config
 import h5py
+import matplotlib.pyplot as plt
 
 
 class FSFinance:
@@ -30,7 +31,7 @@ class FSFinance:
         aws_secret_access_key = os.getenv("FSF_FRONT_END_BUCKET_READ_ONLY")
         bucket_name = "portfolio-optimization"
         object_name = "portfolio_optimization_plot_data.h5"
-        download_path = os.path.join("input", object_name)
+        self.portfolio_optimization_plot_data_path = os.path.join("input", object_name)
         session = boto3.session.Session()
         client = session.client(
             "s3",
@@ -40,8 +41,10 @@ class FSFinance:
             aws_secret_access_key=aws_secret_access_key,
             config=Config(signature_version="s3v4"),
         )
-        client.download_file(bucket_name, object_name, download_path)
-        print(f"Downloaded {download_path}")
+        client.download_file(
+            bucket_name, object_name, self.portfolio_optimization_plot_data_path
+        )
+        print(f"Downloaded {self.portfolio_optimization_plot_data_path}")
 
     def tickers(self):
         """
@@ -138,6 +141,64 @@ class FSFinance:
         )
         return chart
 
+    def plot_portfolio_optimization(self):
+        with h5py.File(self.portfolio_optimization_plot_data_path, "r") as hf:
+            efficient_frontier_xs = hf["efficient_frontier/xs"][:]
+            efficient_frontier_ys = hf["efficient_frontier/ys"][:]
+            tangency_line_xs = hf["tangency_line/xs"][:]
+            tangency_line_ys = hf["tangency_line/ys"][:]
+            simulated_portfolios_xs = hf["simulated_portfolios/xs"][:]
+            simulated_portfolios_ys = hf["simulated_portfolios/ys"][:]
+            max_sharpe_ratio_xs = hf["max_sharpe_ratio/xs"][:]
+            max_sharpe_ratio_ys = hf["max_sharpe_ratio/ys"][:]
+            min_var_portfolio_xs = hf["min_var_portfolio/xs"][:]
+            min_var_portfolio_ys = hf["min_var_portfolio/ys"][:]
+        fig, ax = plt.subplots(nrows=1, ncols=1)
+        ax.plot(
+            efficient_frontier_xs,
+            efficient_frontier_ys,
+            c="#009E73",
+            zorder=1,
+            label="Efficient Frontier",
+        )
+        ax.plot(
+            tangency_line_xs,
+            tangency_line_ys,
+            c="#F0E442",
+            zorder=1,
+            label="Tangency line",
+        )
+        ax.scatter(
+            simulated_portfolios_xs,
+            simulated_portfolios_ys,
+            alpha=0.1,
+            s=2,
+            c="#0072B2",
+            zorder=10,
+            label="Portfolios",
+        )
+        ax.scatter(
+            max_sharpe_ratio_xs,
+            max_sharpe_ratio_ys,
+            c="#CC79A7",
+            marker="*",
+            s=200,
+            zorder=10,
+            label="Max Sharpe Ratio Portfolio",
+        )
+        ax.scatter(
+            min_var_portfolio_xs,
+            min_var_portfolio_ys,
+            c="#E69F00",
+            zorder=10,
+            label="Min Var Portfolio",
+        )
+        ax.set_xlabel("Risk (σ)")
+        ax.set_ylabel("Daily Returns (%)")
+        ax.set_title("Portfolio Optimization")
+        ax.legend()
+        return fig
+
     def calc_rmse(self, ticker):
         y_actual = self.df[ticker][:-1]
         y_pred_arima = self.df[f"{ticker}_arima"][:-1]
@@ -167,6 +228,11 @@ class FSFinance:
                     self.timeseries_plot(choice),
                     self.arima_rmse_message(choice),
                     self.hw_rmse_message(choice),
+                )
+
+            with gr.Row():
+                portfolio_optimization_plot = gr.Plot(
+                    self.plot_portfolio_optimization()
                 )
 
             with gr.Row(equal_height=True):
