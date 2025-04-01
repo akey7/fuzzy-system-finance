@@ -31,12 +31,14 @@ class FSFinance:
         object_name = "portfolio_optimization_plot_data.h5"
         download_path = os.path.join("input", object_name)
         session = boto3.session.Session()
-        client = session.client('s3',
-                                region_name=region_name,
-                                endpoint_url=endpoint_url,
-                                aws_access_key_id=aws_access_key_id,
-                                aws_secret_access_key=aws_secret_access_key,
-                                config=Config(signature_version='s3v4'))
+        client = session.client(
+            "s3",
+            region_name=region_name,
+            endpoint_url=endpoint_url,
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            config=Config(signature_version="s3v4"),
+        )
         client.download_file(bucket_name, object_name, download_path)
         print(f"Downloaded {download_path}")
 
