@@ -23,4 +23,4 @@ class S3Downloader:
             config=Config(signature_version="s3v4"),
         )
         client.download_file(bucket_name, object_name, local_filename)
-        print(f"Downloaded {local_filename}")
+        print(f"Downloaded {local_filename}!")

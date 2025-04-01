@@ -19,12 +19,6 @@ class FSFinance:
         the data to be visualized.
         """
         load_dotenv()
-        hf_token = os.getenv("HF_TOKEN")
-        login(hf_token, add_to_git_credential=True)
-        hf_datset = os.getenv("HF_DATASET")
-        dataset = load_dataset(hf_datset)
-        self.df = dataset["train"].to_pandas()
-        self.df["pred_date"] = pd.to_datetime(self.df["pred_date"])
         folder_path = "input"
         if not os.path.exists(folder_path):
             os.mkdir(folder_path)
@@ -32,6 +26,7 @@ class FSFinance:
         else:
             print(f"Folder '{folder_path}' already exists")
         bucket_name = os.getenv("PORTFOLIO_OPTIMIZATION_SPACE_NAME")
+        time_series_bucket_name = os.getenv("TIME_SERIES_SPACE_NAME")
         hdf5_filename = "portfolio_optimization_plot_data.h5"
         optimization_metadata_filename = "optimization_metadata.yml"
         self.portfolio_optimization_plot_data_path = os.path.join(
@@ -40,6 +35,8 @@ class FSFinance:
         optimization_metadata_path = os.path.join(
             "input", optimization_metadata_filename
         )
+        all_forecasts_filename = "all_forecasts.csv"
+        all_forecasts_local_filename = os.path.join("input", all_forecasts_filename)
         s3d = S3Downloader()
         s3d.download_file(
             bucket_name, hdf5_filename, self.portfolio_optimization_plot_data_path
@@ -47,8 +44,15 @@ class FSFinance:
         s3d.download_file(
             bucket_name, optimization_metadata_filename, optimization_metadata_path
         )
+        s3d.download_file(
+            time_series_bucket_name,
+            all_forecasts_filename,
+            all_forecasts_local_filename,
+        )
         with open(optimization_metadata_path, "r") as file:
             self.optimization_metadata = yaml.safe_load(file)
+        self.df = pd.read_csv(all_forecasts_local_filename)
+        self.df["pred_date"] = pd.to_datetime(self.df["pred_date"])
 
     def tickers(self):
         """
