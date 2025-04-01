@@ -37,13 +37,17 @@ class FSFinance:
         self.portfolio_optimization_plot_data_path = os.path.join(
             "input", hdf5_filename
         )
-        optimization_metadata_path = os.path.join("input", optimization_metadata_filename)
+        optimization_metadata_path = os.path.join(
+            "input", optimization_metadata_filename
+        )
         s3d = S3Downloader()
         s3d.download_file(
             bucket_name, hdf5_filename, self.portfolio_optimization_plot_data_path
         )
-        s3d.download_file(bucket_name, optimization_metadata_filename, optimization_metadata_path)
-        with open(optimization_metadata_path, 'r') as file:
+        s3d.download_file(
+            bucket_name, optimization_metadata_filename, optimization_metadata_path
+        )
+        with open(optimization_metadata_path, "r") as file:
             self.optimization_metadata = yaml.safe_load(file)
 
     def tickers(self):
@@ -141,6 +145,24 @@ class FSFinance:
         )
         return chart
 
+    def optimization_metadata_markdown(self):
+        date_from = self.optimization_metadata["date_updated"]["date_from"]
+        date_to = self.optimization_metadata["date_updated"]["date_to"]
+        annualized_return = self.optimization_metadata["optimum_portfolio"][
+            "annualized_return"
+        ]
+        annualized_risk = self.optimization_metadata["optimum_portfolio"]["risk"]
+        lines = [
+            "## Porfolio optimization",
+            "### Tickers:",
+            f"{', '.join(self.optimization_metadata['tickers'])}",
+            "### Spanning Dates",
+            f"{date_from} to {date_to}",
+            "### Optimum portfolio annualized performance",
+            f"Return: {annualized_return:.2f}%, Risk: {annualized_risk:.2f}%",
+        ]
+        return os.linesep.join(lines)
+
     def plot_portfolio_optimization(self):
         with h5py.File(self.portfolio_optimization_plot_data_path, "r") as hf:
             efficient_frontier_xs = hf["efficient_frontier/xs"][:]
@@ -233,6 +255,11 @@ class FSFinance:
             with gr.Row():
                 portfolio_optimization_plot = gr.Plot(
                     self.plot_portfolio_optimization()
+                )
+
+            with gr.Row():
+                optimization_metadata_md = gr.Markdown(
+                    self.optimization_metadata_markdown()
                 )
 
             with gr.Row(equal_height=True):
