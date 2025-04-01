@@ -9,3 +9,4 @@ datasets
 python-dotenv
 scikit-learn
 boto3
+h5py

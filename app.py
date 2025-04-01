@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from sklearn.metrics import root_mean_squared_error
 import boto3
 from botocore.client import Config
+import h5py
 
 
 class FSFinance:
