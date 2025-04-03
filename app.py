@@ -148,6 +148,12 @@ class FSFinance:
         return chart
 
     def optimization_metadata_markdown(self):
+        tickers_and_weights = [
+            f"{ticker}: {weight:.2f}%"
+            for ticker, weight in self.optimization_metadata["optimum_portfolio"][
+                "weights"
+            ].items()
+        ]
         date_from = self.optimization_metadata["date_updated"]["date_from"]
         date_to = self.optimization_metadata["date_updated"]["date_to"]
         annualized_return = self.optimization_metadata["optimum_portfolio"][
@@ -155,9 +161,9 @@ class FSFinance:
         ]
         annualized_risk = self.optimization_metadata["optimum_portfolio"]["risk"]
         lines = [
-            "## Porfolio optimization",
-            "### Tickers:",
-            f"{', '.join(self.optimization_metadata['tickers'])}",
+            "## Max Sharpe Ratio Portfolio",
+            "### Tickers and weights (shorting and leverage allowed):",
+            ", ".join(tickers_and_weights),
             "### Spanning Dates",
             f"{date_from} to {date_to}",
             "### Optimum portfolio annualized performance",
@@ -217,7 +223,7 @@ class FSFinance:
             zorder=10,
             label="Min Var Portfolio",
         )
-        ax.set_xlabel("Risk (σ)")
+        ax.set_xlabel("Daily Risk (σ)")
         ax.set_ylabel("Daily Returns (%)")
         ax.set_title("Portfolio Optimization")
         ax.legend()
