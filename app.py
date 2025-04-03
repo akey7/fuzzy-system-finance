@@ -164,7 +164,7 @@ class FSFinance:
             "## Max Sharpe Ratio Portfolio",
             "### Tickers and weights (shorting and leverage allowed):",
             ", ".join(tickers_and_weights),
-            "### Spanning Dates",
+            "### Historical Dates",
             f"{date_from} to {date_to}",
             "### Optimum portfolio annualized performance",
             f"Return: {annualized_return:.2f}%, Risk: {annualized_risk:.2f}%",
@@ -261,24 +261,28 @@ class FSFinance:
                 )
 
             with gr.Row():
-                portfolio_optimization_plot = gr.Plot(
-                    self.plot_portfolio_optimization()
-                )
-
-            with gr.Row():
-                optimization_metadata_md = gr.Markdown(
-                    self.optimization_metadata_markdown()
-                )
-
-            with gr.Row(equal_height=True):
                 with gr.Column():
-                    gr.Markdown("### Select a ticker or index:")
-                    ticker_dropdown = gr.Dropdown(
-                        choices=self.tickers(),
-                        label=None,
-                        show_label=False,
-                        value=self.tickers()[0],
+                    portfolio_optimization_plot = gr.Plot(
+                        self.plot_portfolio_optimization()
                     )
+
+                with gr.Column():
+                    with gr.Row():
+                        optimization_metadata_md = gr.Markdown(
+                            self.optimization_metadata_markdown()
+                        )
+
+                    with gr.Row():
+                        gr.Markdown(
+                            f"## Current and Future Day Models{os.linesep}### Select a ticker or index to view the model:"
+                        )
+                    with gr.Row():
+                        ticker_dropdown = gr.Dropdown(
+                            choices=self.tickers(),
+                            label=None,
+                            show_label=False,
+                            value=self.tickers()[0],
+                        )
             with gr.Row():
                 with gr.Column():
                     arima_rmse_md = gr.Markdown(
