@@ -284,6 +284,9 @@ class FSFinance:
                             value=self.tickers()[0],
                         )
             with gr.Row():
+                ts_plot = self.timeseries_plot(self.tickers()[0])
+                
+            with gr.Row():
                 with gr.Column():
                     arima_rmse_md = gr.Markdown(
                         self.arima_rmse_message(self.tickers()[0]), container=True
@@ -292,8 +295,7 @@ class FSFinance:
                     hw_rmse_md = gr.Markdown(
                         self.hw_rmse_message(self.tickers()[0]), container=True
                     )
-            with gr.Row():
-                ts_plot = self.timeseries_plot(self.tickers()[0])
+            
             ticker_dropdown.change(
                 ticker_change,
                 inputs=[ticker_dropdown],
