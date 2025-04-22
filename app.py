@@ -230,9 +230,10 @@ class FSFinance:
         return fig
 
     def calc_rmse(self, ticker):
-        y_actual = self.df[ticker][:-1]
-        y_pred_arima = self.df[f"{ticker}_arima"][:-1]
-        y_pred_hw = self.df[f"{ticker}_hw"][:-1]
+        df0 = self.df.dropna()
+        y_actual = df0[ticker]
+        y_pred_arima = df0[f"{ticker}_arima"]
+        y_pred_hw = df0[f"{ticker}_hw"]
         rmse_arima = root_mean_squared_error(y_actual, y_pred_arima)
         rmse_hw = root_mean_squared_error(y_actual, y_pred_hw)
         return rmse_arima, rmse_hw
