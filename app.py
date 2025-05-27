@@ -231,13 +231,11 @@ class FSFinance:
         df0 = self.df.dropna()
         y_actual = df0[ticker]
         y_pred_arima = df0[f"{ticker}_arima"]
-        y_pred_hw = df0[f"{ticker}_hw"]
         rmse_arima = root_mean_squared_error(y_actual, y_pred_arima)
-        rmse_hw = root_mean_squared_error(y_actual, y_pred_hw)
-        return rmse_arima, rmse_hw
+        return rmse_arima
 
     def arima_rmse_message(self, ticker):
-        rmse_arima, _ = self.calc_rmse(ticker)
+        rmse_arima = self.calc_rmse(ticker)
         rmse_arima_fmt = f"{rmse_arima:.2f}"
         return f"### ARIMA RMSE:{os.linesep}# {rmse_arima_fmt}"
 
