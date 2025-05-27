@@ -77,8 +77,6 @@ class FSFinance:
         """
         if "_arima" in col_name:
             return f"{col_name.replace('_arima', '')} (ARIMA model)"
-        elif "_hw" in col_name:
-            return f"{col_name.replace('_hw', '')} (Holt-Winters model)"
         else:
             return f"{col_name} (Actual)"
 
@@ -100,11 +98,11 @@ class FSFinance:
             DataFrame for plotting with gr.LinePlot().
         """
         select_df = self.df[
-            ["pred_date", ticker, f"{ticker}_arima", f"{ticker}_hw"]
+            ["pred_date", ticker, f"{ticker}_arima"]
         ].copy()
         select_df = select_df.melt(
             id_vars="pred_date",
-            value_vars=[ticker, f"{ticker}_arima", f"{ticker}_hw"],
+            value_vars=[ticker, f"{ticker}_arima"],
             var_name="Ticker",
             value_name="Adjusted Close ($)",
         )
@@ -243,11 +241,6 @@ class FSFinance:
         rmse_arima_fmt = f"{rmse_arima:.2f}"
         return f"### ARIMA RMSE:{os.linesep}# {rmse_arima_fmt}"
 
-    def hw_rmse_message(self, ticker):
-        _, rmse_hw = self.calc_rmse(ticker)
-        rmse_hw_fmt = f"{rmse_hw:.2f}"
-        return f"### Holt-Winters RMSE:{os.linesep}# {rmse_hw_fmt}"
-
     def run(self):
         """
         Run the Gradio app.
@@ -258,7 +251,6 @@ class FSFinance:
                 return (
                     self.timeseries_plot(choice),
                     self.arima_rmse_message(choice),
-                    self.hw_rmse_message(choice),
                 )
 
             with gr.Row():
@@ -292,15 +284,11 @@ class FSFinance:
                     arima_rmse_md = gr.Markdown(
                         self.arima_rmse_message(self.tickers()[0]), container=True
                     )
-                with gr.Column():
-                    hw_rmse_md = gr.Markdown(
-                        self.hw_rmse_message(self.tickers()[0]), container=True
-                    )
             
             ticker_dropdown.change(
                 ticker_change,
                 inputs=[ticker_dropdown],
-                outputs=[ts_plot, arima_rmse_md, hw_rmse_md],
+                outputs=[ts_plot, arima_rmse_md],
             )
 
         app.launch()
