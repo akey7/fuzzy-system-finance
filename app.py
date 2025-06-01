@@ -97,9 +97,7 @@ class FSFinance:
         pd.DataFrame
             DataFrame for plotting with gr.LinePlot().
         """
-        select_df = self.df[
-            ["pred_date", ticker, f"{ticker}_arima"]
-        ].copy()
+        select_df = self.df[["pred_date", ticker, f"{ticker}_arima"]].copy()
         select_df = select_df.melt(
             id_vars="pred_date",
             value_vars=[ticker, f"{ticker}_arima"],
@@ -270,13 +268,14 @@ class FSFinance:
                         )
                     with gr.Row():
                         ts_plot = self.timeseries_plot(self.tickers()[0])
-                        
+
                     with gr.Row():
                         with gr.Column():
                             arima_rmse_md = gr.Markdown(
-                                self.arima_rmse_message(self.tickers()[0]), container=True
+                                self.arima_rmse_message(self.tickers()[0]),
+                                container=True,
                             )
-            
+
             def ticker_change(choice):
                 return (
                     self.timeseries_plot(choice),
