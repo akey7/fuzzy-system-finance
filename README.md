@@ -14,7 +14,7 @@ short_description: A simple portfolio optimization and time series analysis app.
 Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
 
 # fuzzy-system-finance
-A sample time series finance app.
+A simple portfolio optimization and time series analysis app.
 
 ## Installation
 
