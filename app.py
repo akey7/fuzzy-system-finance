@@ -97,9 +97,7 @@ class FSFinance:
         pd.DataFrame
             DataFrame for plotting with gr.LinePlot().
         """
-        select_df = self.df[
-            ["pred_date", ticker, f"{ticker}_arima"]
-        ].copy()
+        select_df = self.df[["pred_date", ticker, f"{ticker}_arima"]].copy()
         select_df = select_df.melt(
             id_vars="pred_date",
             value_vars=[ticker, f"{ticker}_arima"],
@@ -245,44 +243,43 @@ class FSFinance:
         """
         with gr.Blocks() as app:
 
+            with gr.Tabs():
+                with gr.Tab("Portfolio Optimization"):
+                    with gr.Row():
+                        portfolio_optimization_plot = gr.Plot(
+                            self.plot_portfolio_optimization()
+                        )
+
+                    with gr.Row():
+                        optimization_metadata_md = gr.Markdown(
+                            self.optimization_metadata_markdown()
+                        )
+                with gr.Tab("Timeseries Analysis"):
+                    with gr.Row():
+                        with gr.Column(scale=1):
+                            gr.Markdown(
+                                f"## Current and Future Day Models{os.linesep}### Select a ticker or index to view the model:"
+                            )
+                            ticker_dropdown = gr.Dropdown(
+                                choices=self.tickers(),
+                                label=None,
+                                show_label=False,
+                                value=self.tickers()[0],
+                            )
+                            arima_rmse_md = gr.Markdown(
+                                self.arima_rmse_message(self.tickers()[0]),
+                                container=True,
+                            )
+                        
+                        with gr.Column(scale=2):
+                            ts_plot = self.timeseries_plot(self.tickers()[0])
+
             def ticker_change(choice):
                 return (
                     self.timeseries_plot(choice),
                     self.arima_rmse_message(choice),
                 )
 
-            with gr.Row():
-                with gr.Column():
-                    portfolio_optimization_plot = gr.Plot(
-                        self.plot_portfolio_optimization()
-                    )
-
-                with gr.Column():
-                    with gr.Row():
-                        optimization_metadata_md = gr.Markdown(
-                            self.optimization_metadata_markdown()
-                        )
-
-                    with gr.Row():
-                        gr.Markdown(
-                            f"## Current and Future Day Models{os.linesep}### Select a ticker or index to view the model:"
-                        )
-                    with gr.Row():
-                        ticker_dropdown = gr.Dropdown(
-                            choices=self.tickers(),
-                            label=None,
-                            show_label=False,
-                            value=self.tickers()[0],
-                        )
-            with gr.Row():
-                ts_plot = self.timeseries_plot(self.tickers()[0])
-                
-            with gr.Row():
-                with gr.Column():
-                    arima_rmse_md = gr.Markdown(
-                        self.arima_rmse_message(self.tickers()[0]), container=True
-                    )
-            
             ticker_dropdown.change(
                 ticker_change,
                 inputs=[ticker_dropdown],
