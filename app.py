@@ -248,16 +248,14 @@ class FSFinance:
             with gr.Tabs():
                 with gr.Tab("Portfolio Optimization"):
                     with gr.Row():
-                        with gr.Column():
-                            portfolio_optimization_plot = gr.Plot(
-                                self.plot_portfolio_optimization()
-                            )
+                        portfolio_optimization_plot = gr.Plot(
+                            self.plot_portfolio_optimization()
+                        )
 
-                        with gr.Column():
-                            with gr.Row():
-                                optimization_metadata_md = gr.Markdown(
-                                    self.optimization_metadata_markdown()
-                                )
+                    with gr.Row():
+                        optimization_metadata_md = gr.Markdown(
+                            self.optimization_metadata_markdown()
+                        )
                 with gr.Tab("Timeseries Analysis"):
                     with gr.Row():
                         gr.Markdown(
