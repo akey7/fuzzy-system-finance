@@ -8,7 +8,7 @@ sdk_version: 5.22.0
 app_file: app.py
 pinned: false
 license: mit
-short_description: A simple portfolio optimization and time series analysis app.
+short_description: Portfolio optimization and time series analysis app.
 ---
 
 Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
