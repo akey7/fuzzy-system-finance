@@ -256,25 +256,23 @@ class FSFinance:
                         )
                 with gr.Tab("Timeseries Analysis"):
                     with gr.Row():
-                        gr.Markdown(
-                            f"## Current and Future Day Models{os.linesep}### Select a ticker or index to view the model:"
-                        )
-                    with gr.Row():
-                        ticker_dropdown = gr.Dropdown(
-                            choices=self.tickers(),
-                            label=None,
-                            show_label=False,
-                            value=self.tickers()[0],
-                        )
-                    with gr.Row():
-                        ts_plot = self.timeseries_plot(self.tickers()[0])
-
-                    with gr.Row():
-                        with gr.Column():
+                        with gr.Column(scale=1):
+                            gr.Markdown(
+                                f"## Current and Future Day Models{os.linesep}### Select a ticker or index to view the model:"
+                            )
+                            ticker_dropdown = gr.Dropdown(
+                                choices=self.tickers(),
+                                label=None,
+                                show_label=False,
+                                value=self.tickers()[0],
+                            )
                             arima_rmse_md = gr.Markdown(
                                 self.arima_rmse_message(self.tickers()[0]),
                                 container=True,
                             )
+                        
+                        with gr.Column(scale=2):
+                            ts_plot = self.timeseries_plot(self.tickers()[0])
 
             def ticker_change(choice):
                 return (
