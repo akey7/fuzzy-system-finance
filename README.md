@@ -14,7 +14,7 @@ short_description: A simple portfolio optimization and time series analysis app.
 Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
 
 # fuzzy-system-finance
-A simple portfolio optimization and time series analysis app.
+A simple portfolio optimization and time series analysis app. It is the front end for a backend analysis scripts. Data is transferred from the backend to the front end via DigitalOcean Spaces, an S3 hosting service.
 
 ## Installation
 
@@ -42,7 +42,7 @@ pip install -r requirements.txt
 
 On the production deployment on HuggingFace Spaces, these environment variables are held by the secrets manager. On a development environment, these are managed in a `.env` file **that should never be committed to GitHub or HuggingFace**.
 
-1. `FSF_FRONT_END_BUCKET_ENDPOINT`, `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_READ_ONLY`, `FSF_FRONT_END_BUCKET_READ_ONLY_KEY_ID`: Specifications of the S3/Spaces bucket hosted on AWS or DigitalOcean.
+1. `FSF_FRONT_END_BUCKET_ENDPOINT`, `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_READ_ONLY`, `FSF_FRONT_END_BUCKET_READ_ONLY_KEY_ID`: Specifications of the S3/Spaces bucket hosted on AWS or DigitalOcean. This bucket specification points the app to the files from the backend.
 
 2. `PORTFOLIO_OPTIMIZATION_SPACE_NAME`: DigitalOcean space name for portfolio optimization files.
 
