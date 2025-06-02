@@ -143,13 +143,35 @@ class FSFinance:
         )
         return chart
 
-    def optimization_metadata_markdown(self):
-        tickers_and_weights = [
-            f"{ticker}: {weight:.2f}%"
+    def portfolio_weights_df(self):
+        """
+        Create a Pandas DataFrame of portfolio tickers and weights.
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame of tickers and weights in the portfolio.
+        """
+        df_rows = [
+            {"Ticker": ticker, "Weight": f"{weight:.2f}%", "Numeric Weight": weight}
             for ticker, weight in self.optimization_metadata["optimum_portfolio"][
                 "weights"
             ].items()
         ]
+        df = pd.DataFrame(df_rows)
+        df.sort_values(by="Numeric Weight", ascending=False, inplace=True)
+        df.drop("Numeric Weight", axis=1, inplace=True)
+        return df
+
+    def optimization_metadata_markdown(self):
+        """
+        Generate markdown of optimization metadata.
+
+        Returns
+        -------
+        str
+            String of markdown
+        """
         date_from = self.optimization_metadata["date_updated"]["date_from"]
         date_to = self.optimization_metadata["date_updated"]["date_to"]
         annualized_return = self.optimization_metadata["optimum_portfolio"][
@@ -157,17 +179,23 @@ class FSFinance:
         ]
         annualized_risk = self.optimization_metadata["optimum_portfolio"]["risk"]
         lines = [
-            "## Max Sharpe Ratio Portfolio",
-            "### Tickers and weights (shorting and leverage allowed):",
-            ", ".join(tickers_and_weights),
-            "### Historical Dates",
+            "## Maximum Sharpe ratio portfolio",
+            "### Historical dates",
             f"{date_from} to {date_to}",
-            "### Optimum portfolio annualized performance",
+            "### Annualized performance",
             f"Return: {annualized_return:.2f}%, Risk: {annualized_risk:.2f}%",
         ]
         return os.linesep.join(lines)
 
     def plot_portfolio_optimization(self):
+        """
+        Plot a figure of the portfolio optimization.
+
+        Returns
+        -------
+        Figure
+            A Matplotlib Figure object o be displayed on the UI.
+        """
         with h5py.File(self.portfolio_optimization_plot_data_path, "r") as hf:
             efficient_frontier_xs = hf["efficient_frontier/xs"][:]
             efficient_frontier_ys = hf["efficient_frontier/ys"][:]
@@ -226,6 +254,14 @@ class FSFinance:
         return fig
 
     def calc_rmse(self, ticker):
+        """
+        Calculate the RMSE of the walk-forward ARIMA model of an asset
+
+        Returns
+        -------
+        float
+            RMSE of ARIMA model.
+        """
         df0 = self.df.dropna()
         y_actual = df0[ticker]
         y_pred_arima = df0[f"{ticker}_arima"]
@@ -233,6 +269,15 @@ class FSFinance:
         return rmse_arima
 
     def arima_rmse_message(self, ticker):
+        """
+        Turn the raw RMSE value into a markdown string for display on
+        the UI.
+
+        Returns
+        -------
+        str
+            Markdown string for UI.
+        """
         rmse_arima = self.calc_rmse(ticker)
         rmse_arima_fmt = f"{rmse_arima:.2f}"
         return f"### ARIMA RMSE:{os.linesep}# {rmse_arima_fmt}"
@@ -251,9 +296,14 @@ class FSFinance:
                         )
 
                     with gr.Row():
-                        optimization_metadata_md = gr.Markdown(
-                            self.optimization_metadata_markdown()
-                        )
+                        with gr.Column():
+                            weights_table = gr.DataFrame(
+                                value=self.portfolio_weights_df()
+                            )
+                        with gr.Column():
+                            optimization_metadata_md = gr.Markdown(
+                                self.optimization_metadata_markdown()
+                            )
                 with gr.Tab("Timeseries Analysis"):
                     with gr.Row():
                         with gr.Column(scale=1):
@@ -270,7 +320,7 @@ class FSFinance:
                                 self.arima_rmse_message(self.tickers()[0]),
                                 container=True,
                             )
-                        
+
                         with gr.Column(scale=2):
                             ts_plot = self.timeseries_plot(self.tickers()[0])
 
