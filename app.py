@@ -143,6 +143,15 @@ class FSFinance:
         )
         return chart
 
+    def portfolio_weights_df(self):
+        df_rows = [
+            {"Ticker": ticker, "Weight": f"{weight:.2f}%"}
+            for ticker, weight in self.optimization_metadata["optimum_portfolio"][
+                "weights"
+            ].items()
+        ]
+        return pd.DataFrame(df_rows)
+
     def optimization_metadata_markdown(self):
         tickers_and_weights = [
             f"{ticker}: {weight:.2f}%"
@@ -251,9 +260,14 @@ class FSFinance:
                         )
 
                     with gr.Row():
-                        optimization_metadata_md = gr.Markdown(
-                            self.optimization_metadata_markdown()
-                        )
+                        with gr.Column():
+                            weights_table = gr.DataFrame(
+                                value=self.portfolio_weights_df()
+                            )
+                        with gr.Column():
+                            optimization_metadata_md = gr.Markdown(
+                                self.optimization_metadata_markdown()
+                            )
                 with gr.Tab("Timeseries Analysis"):
                     with gr.Row():
                         with gr.Column(scale=1):
@@ -270,7 +284,7 @@ class FSFinance:
                                 self.arima_rmse_message(self.tickers()[0]),
                                 container=True,
                             )
-                        
+
                         with gr.Column(scale=2):
                             ts_plot = self.timeseries_plot(self.tickers()[0])
 
