@@ -144,21 +144,26 @@ class FSFinance:
         return chart
 
     def portfolio_weights_df(self):
+        """
+        Create a Pandas DataFrame of portfolio tickers and weights.
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame of tickers and weights in the portfolio.
+        """
         df_rows = [
-            {"Ticker": ticker, "Weight": f"{weight:.2f}%"}
+            {"Ticker": ticker, "Weight": f"{weight:.2f}%", "Numeric Weight": weight}
             for ticker, weight in self.optimization_metadata["optimum_portfolio"][
                 "weights"
             ].items()
         ]
-        return pd.DataFrame(df_rows)
+        df = pd.DataFrame(df_rows)
+        df.sort_values(by="Numeric Weight", ascending=False, inplace=True)
+        df.drop("Numeric Weight", axis=1, inplace=True)
+        return df
 
     def optimization_metadata_markdown(self):
-        tickers_and_weights = [
-            f"{ticker}: {weight:.2f}%"
-            for ticker, weight in self.optimization_metadata["optimum_portfolio"][
-                "weights"
-            ].items()
-        ]
         date_from = self.optimization_metadata["date_updated"]["date_from"]
         date_to = self.optimization_metadata["date_updated"]["date_to"]
         annualized_return = self.optimization_metadata["optimum_portfolio"][
@@ -166,12 +171,10 @@ class FSFinance:
         ]
         annualized_risk = self.optimization_metadata["optimum_portfolio"]["risk"]
         lines = [
-            "## Max Sharpe Ratio Portfolio",
-            "### Tickers and weights (shorting and leverage allowed):",
-            ", ".join(tickers_and_weights),
-            "### Historical Dates",
+            "## Maximum Sharpe ratio portfolio",
+            "### Historical dates",
             f"{date_from} to {date_to}",
-            "### Optimum portfolio annualized performance",
+            "### Annualized performance",
             f"Return: {annualized_return:.2f}%, Risk: {annualized_risk:.2f}%",
         ]
         return os.linesep.join(lines)
