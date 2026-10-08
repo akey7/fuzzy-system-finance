@@ -42,7 +42,7 @@ pip install -r requirements.txt
 
 On the production deployment on HuggingFace Spaces, these environment variables are held by the secrets manager. On a development environment, these are managed in a `.env` file **that should never be committed to GitHub or HuggingFace**.
 
-1. `FSF_FRONT_END_BUCKET_ENDPOINT`, `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_READ_ONLY`, `FSF_FRONT_END_BUCKET_READ_ONLY_KEY_ID`: Specifications of the S3/Spaces bucket hosted on AWS or DigitalOcean. This bucket specification points the app to the files from the backend.
+1. `FSF_FRONT_END_BUCKET_ENDPOINT`, `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_READ_ONLY`, `FSF_FRONT_END_BUCKET_READ_ONLY_KEY_ID`: Specifications of the S3 bucket hosted on DigitalOcean. This bucket specification points the app to the files from the backend.
 
 2. `PORTFOLIO_OPTIMIZATION_SPACE_NAME`: DigitalOcean space name for portfolio optimization files.
 
@@ -56,7 +56,7 @@ On the production deployment on HuggingFace Spaces, these environment variables 
 
 ### Scripts
 
-| Filename           | Standalone Execution? | Purpose                                                | Downloads from front end? |
-| ------------------ | --------------------- | ------------------------------------------------------ | ------------------------- |
-| `app.py`           | Yes                   | Run the Fuzzy System Finance Gradio app.               | Yes                       |
-| `s3_downloader.py` | No                    | Downloads data from S3 buckets for display on the app. | Yes (used by `app.py`)    |
+| Filename           | Standalone Execution? | Purpose                                                |
+| ------------------ | --------------------- | -------------------------------------------------------|
+| `app.py`           | Yes                   | Run the Fuzzy System Finance Gradio app.               |
+| `s3_downloader.py` | No                    | Downloads data from S3 buckets for display on the app. |
