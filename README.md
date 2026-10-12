@@ -5,7 +5,7 @@ colorFrom: pink
 colorTo: yellow
 sdk: gradio
 sdk_version: 5.22.0
-python_version: "3.13"
+python_version: "3.13.5"
 app_file: app.py
 pinned: false
 license: mit
@@ -29,7 +29,7 @@ Local development uses [uv](https://docs.astral.sh/uv/) to manage both the Pytho
 
 | File | Role |
 | ---- | ---- |
-| `.python-version` | Python version used by uv for local development (`3.13`). |
+| `.python-version` | Exact Python version used by uv for local development (`3.13.5`). |
 | `pyproject.toml` | Direct production dependencies, the `dev` dependency group, and pytest settings. **Edit dependencies here.** |
 | `uv.lock` | Exact resolved versions of every package. Commit it. |
 | `requirements.txt` | **Generated** from `uv.lock` for Hugging Face Spaces, which installs only from this file. Do not edit it by hand. |
@@ -83,7 +83,7 @@ uv export --format requirements-txt --no-dev --no-hashes -o requirements.txt
 
 Hugging Face reads the Python and Gradio versions from this README's frontmatter, not from `pyproject.toml`, so these must be kept in agreement by hand:
 
-- **Python:** `python_version` in the frontmatter, `.python-version`, and `requires-python` in `pyproject.toml`.
+- **Python:** `python_version` in the frontmatter and `.python-version` must name the same exact version (currently `3.13.5`). `requires-python` in `pyproject.toml` (`==3.13.*`) must include it; it covers the whole 3.13 series, so a patch upgrade does not require re-locking.
 - **Gradio:** `sdk_version` in the frontmatter and the `gradio==` pin in `pyproject.toml`.
 
 Development is on macOS while Hugging Face runs Debian Linux, so the environments match in Python and package versions but not in operating system or CPU architecture. One practical consequence: macOS file names are case-insensitive by default and Linux file names are case-sensitive, so keep file name casing exact in code.
