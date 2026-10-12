@@ -16,6 +16,10 @@ Check out the configuration reference at https://huggingface.co/docs/hub/spaces-
 # fuzzy-system-finance
 A simple portfolio optimization and time series analysis app. It is the front end for a backend analysis scripts. Data is transferred from the backend to the front end via DigitalOcean Spaces, an S3 hosting service.
 
+The files the backend delivers, and how the app must read them, are specified in [`INTERFACE_CONTRACT.md`](INTERFACE_CONTRACT.md). That file is a read-only mirror of the copy in the backend repo. The app requires contract v4 or later data; older files are reported on the dashboard instead of being displayed.
+
+**Not investment advice.** This is a hobby project, and every value it shows is a backtest or model output.
+
 ## Installation
 
 ### Development Dependencies
@@ -54,9 +58,12 @@ On the production deployment on HuggingFace Spaces, these environment variables 
 
 1. `input/`: Holds input data downloaded from backend. If it does not exist, `app.py` creates it before access.
 
+2. `tests/`: Unit tests for the data loaders. They build synthetic files in a temporary folder and never touch `input/`. Run them from the repo root with `pytest`.
+
 ### Scripts
 
-| Filename           | Standalone Execution? | Purpose                                                |
-| ------------------ | --------------------- | -------------------------------------------------------|
-| `app.py`           | Yes                   | Run the Fuzzy System Finance Gradio app.               |
-| `s3_downloader.py` | No                    | Downloads data from S3 buckets for display on the app. |
+| Filename           | Standalone Execution? | Purpose                                                                                  |
+| ------------------ | --------------------- | ---------------------------------------------------------------------------------------- |
+| `app.py`           | Yes                   | Run the Fuzzy System Finance Gradio app.                                                 |
+| `s3_downloader.py` | No                    | Downloads data from S3 buckets for display on the app.                                   |
+| `data_loading.py`  | No                    | Loads and validates the downloaded files against `INTERFACE_CONTRACT.md`.                |
