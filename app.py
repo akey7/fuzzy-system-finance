@@ -167,7 +167,8 @@ class FSFinance:
     def timeseries_plot(self, ticker):
         """
         Create a gr.LinePlot() with actual and predicted prices for
-        a ticker.
+        a ticker. The app calls this inside a gr.render() function so the
+        plot is rebuilt from scratch whenever the selected ticker changes.
 
         Parameters
         ----------
@@ -180,8 +181,8 @@ class FSFinance:
             An interactive LinePlot with ticker information.
         """
         long_df = self.long_df(ticker)
-        min_value = 0.9 * long_df["Adjusted Close ($)"].min()
-        max_value = 1.1 * long_df["Adjusted Close ($)"].max()
+        min_value = float(0.9 * long_df["Adjusted Close ($)"].min())
+        max_value = float(1.1 * long_df["Adjusted Close ($)"].max())
         chart = gr.LinePlot(
             value=long_df,
             title=f"{ticker}: actual vs. one-day-ahead ARIMA forecast",
@@ -484,18 +485,21 @@ class FSFinance:
                                 )
 
                             with gr.Column(scale=2):
-                                ts_plot = self.timeseries_plot(self.tickers()[0])
+                                # Rebuild the plot on each ticker change rather
+                                # than updating the value of an existing
+                                # gr.LinePlot, which left the chart empty.
+                                @gr.render(inputs=[ticker_dropdown])
+                                def render_timeseries_plot(choice):
+                                    if choice:
+                                        self.timeseries_plot(choice)
 
                         def ticker_change(choice):
-                            return (
-                                self.timeseries_plot(choice),
-                                self.arima_rmse_message(choice),
-                            )
+                            return self.arima_rmse_message(choice)
 
                         ticker_dropdown.change(
                             ticker_change,
                             inputs=[ticker_dropdown],
-                            outputs=[ts_plot, arima_rmse_md],
+                            outputs=[arima_rmse_md],
                         )
 
             gr.Markdown(
