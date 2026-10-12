@@ -29,10 +29,21 @@ A simple portfolio optimization and time series analysis app. It is the **fronte
 
 This is a hobby project being revised. Planned work spans technical implementation, UI changes, quantitative finance improvements, and presentation for a general data science audience. Expect changes here to depend on changes in the backend repo.
 
+## Interface contract
+
+@INTERFACE_CONTRACT.md
+
+The file above is the authoritative spec of what the backend uploads to the S3 buckets and this frontend reads: bucket keys, file formats, YAML keys, HDF5 groups/datasets/attributes, CSV columns, units, annualization, date formats, and the reader requirements this app must meet. When the contract and the existing frontend code disagree, the contract wins; treat the disagreement as a frontend bug to fix (or flag to the human), not as evidence of the real data format.
+
+- **Read-only mirror here.** The backend repo (`fuzzy-system-research`) holds the source of truth, and the copy in this repo must stay byte-for-byte identical to it. Do not edit `INTERFACE_CONTRACT.md` in this repo. If a contract change is needed, draft the proposed change (including the version bump and changelog entry) in your response for the human to apply in the backend repo first and then copy here.
+- **Build to the contract, not to samples.** Write parsing and display code against the documented schema and the "Reader requirements" section (ignore unknown keys/columns, do not hardcode tickers or array lengths, handle `NaN` and empty cells, show data dates, fail soft, label units). Files in `input/` are useful for checking behavior but are a single snapshot, not the spec.
+- **Check the version.** Note the contract version you are working against in your summary. When the contract changelog marks a change as breaking, review the frontend impact it lists and make sure the app handles it (including detecting older files where the contract describes how).
+- **Be precise with finance labels.** Use the contract's units and terminology in user-facing text (e.g., "annualized (arithmetic)", percent vs. dollars, daily vs. annualized) and include the "not investment advice" notice it requires.
+
 ## Cross-repo awareness
 
-- The backend repo is **not** available in this session. Do not guess at its code or data schemas.
-- The files in the S3 buckets are the contract between the repos. Before changing how the app parses or displays downloaded data, look at how the existing code reads it, and if a change implies a new or altered file format, column, or field, **list the required backend changes explicitly** for the human to carry over to the backend repo.
+- The backend repo is **not** available in this session. Do not guess at its code; for data schemas, rely on `INTERFACE_CONTRACT.md` and nothing else.
+- Before changing how the app parses or displays downloaded data, check the contract and look at how the existing code reads it. If a change implies a new or altered file, key, column, field, or unit, **list the required backend changes explicitly** for the human to carry over to the backend repo, and say whether the change is additive or breaking under the contract's rules (breaking changes need explicit human approval; prefer an additive alternative).
 - Make loading code tolerant and explicit about schema (clear errors on missing columns or files) rather than silently assuming structure.
 
 ## Repo layout
@@ -42,6 +53,7 @@ This is a hobby project being revised. Planned work spans technical implementati
 | `app.py` | Entry point. Runs the Gradio app. Creates `input/` if it does not exist before access. Standalone execution (by the human). |
 | `s3_downloader.py` | Downloads data from the S3 buckets for display. Imported by the app, not run standalone. |
 | `input/` | Data downloaded from the backend. **Off-limits for writes.** |
+| `INTERFACE_CONTRACT.md` | Authoritative spec of the S3 files the backend delivers. Mirror of the backend repo's copy; **do not edit here**. |
 | `requirements.txt` | Production dependencies. |
 | `requirements-dev.txt` | Development + production dependencies. |
 | `README.md` | Doubles as the Hugging Face Spaces config via its YAML frontmatter. |
