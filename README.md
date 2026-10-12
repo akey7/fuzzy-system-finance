@@ -5,6 +5,7 @@ colorFrom: pink
 colorTo: yellow
 sdk: gradio
 sdk_version: 5.22.0
+python_version: "3.13"
 app_file: app.py
 pinned: false
 license: mit
@@ -22,25 +23,70 @@ The files the backend delivers, and how the app must read them, are specified in
 
 ## Installation
 
-### Development Dependencies
+### Development environment (uv)
 
-This project can be installed into a conda environment. First create the conda environment with:
+Local development uses [uv](https://docs.astral.sh/uv/) to manage both the Python version and the dependencies. The relevant files are:
 
-```
-conda create -n fuzzy-system-finance python=3.12
-```
+| File | Role |
+| ---- | ---- |
+| `.python-version` | Python version used by uv for local development (`3.13`). |
+| `pyproject.toml` | Direct production dependencies, the `dev` dependency group, and pytest settings. **Edit dependencies here.** |
+| `uv.lock` | Exact resolved versions of every package. Commit it. |
+| `requirements.txt` | **Generated** from `uv.lock` for Hugging Face Spaces, which installs only from this file. Do not edit it by hand. |
+| `.pre-commit-config.yaml` | Git pre-commit hook that keeps `uv.lock` and `requirements.txt` in sync with `pyproject.toml` on every commit. |
 
-Then install all development and production dependencies:
-
-```
-pip install -r requirements-dev.txt
-```
-
-To install only the production dependencies, activate the virtual environment and run the following:
+Install uv (once), then create the virtual environment in `.venv/` with the pinned Python version and all production and development dependencies:
 
 ```
-pip install -r requirements.txt
+brew install uv
+uv sync
 ```
+
+Then install the pre-commit hook (once per clone):
+
+```
+uv run pre-commit install
+```
+
+Run the app and the tests through uv:
+
+```
+uv run python app.py
+uv run pytest
+```
+
+### Changing dependencies
+
+Add or remove packages with uv, which updates `pyproject.toml` and `uv.lock` together:
+
+```
+uv add <package>
+uv add --dev <package>
+uv remove <package>
+```
+
+Commit `pyproject.toml`, `uv.lock`, and `requirements.txt` together. The pre-commit hook regenerates `uv.lock` and `requirements.txt` whenever they are out of date. The hook runs in GitHub Desktop as well as on the command line.
+
+**If a commit fails because the hook changed files:** this is expected. The hook updated `uv.lock` and/or `requirements.txt` and stopped the commit so you can include them. In GitHub Desktop, the updated files appear in the Changes list; make sure they are checked and commit again.
+
+### Before deploying to Hugging Face Spaces
+
+Hugging Face installs dependencies only from `requirements.txt`, so it must match `uv.lock` before you push to the Space. The pre-commit hook normally handles this. If the hook was not installed, was skipped, or you are unsure, regenerate the file manually from the repo root and commit any changes:
+
+```
+uv export --format requirements-txt --no-dev --no-hashes -o requirements.txt
+```
+
+`--no-dev` keeps development tools out of the deployment, and `--no-hashes` avoids pip hash-checking conflicts with the packages Hugging Face pre-installs. After deploying, check the Space's build log to confirm it used the expected Python version and installed from `requirements.txt`.
+
+### Keeping versions in sync with Hugging Face Spaces
+
+Hugging Face reads the Python and Gradio versions from this README's frontmatter, not from `pyproject.toml`, so these must be kept in agreement by hand:
+
+- **Python:** `python_version` in the frontmatter, `.python-version`, and `requires-python` in `pyproject.toml`.
+- **Gradio:** `sdk_version` in the frontmatter and the `gradio==` pin in `pyproject.toml`.
+
+Development is on macOS while Hugging Face runs Debian Linux, so the environments match in Python and package versions but not in operating system or CPU architecture. One practical consequence: macOS file names are case-insensitive by default and Linux file names are case-sensitive, so keep file name casing exact in code.
 
 ### `.env` file and environment variables
 
@@ -58,7 +104,7 @@ On the production deployment on HuggingFace Spaces, these environment variables 
 
 1. `input/`: Holds input data downloaded from backend. If it does not exist, `app.py` creates it before access.
 
-2. `tests/`: Unit tests for the data loaders. They build synthetic files in a temporary folder and never touch `input/`. Run them from the repo root with `pytest`.
+2. `tests/`: Unit tests for the data loaders. They build synthetic files in a temporary folder and never touch `input/`. Run them from the repo root with `uv run pytest`.
 
 ### Scripts
 

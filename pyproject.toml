@@ -1,0 +1,36 @@
+[project]
+name = "fuzzy-system-finance"
+version = "0.1.0"
+description = "Gradio frontend for portfolio optimization and ARIMA time series results."
+# Keep in sync with .python-version and `python_version` in the README frontmatter.
+requires-python = "==3.13.*"
+dependencies = [
+    "boto3",
+    "botocore",
+    # Must match `sdk_version` in the README frontmatter.
+    "gradio==5.22.0",
+    "h5py",
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "python-dotenv",
+    "pyyaml",
+]
+
+[dependency-groups]
+dev = [
+    "black",
+    "flake8",
+    "pre-commit",
+    "pytest",
+    "sphinx",
+]
+
+[tool.uv]
+# This is an app, not an installable package. This also keeps
+# `uv export` from adding an editable `-e .` line to requirements.txt.
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
