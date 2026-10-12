@@ -1,17 +1,26 @@
 """
 Load and validate the files the backend delivers to the S3 buckets.
 
-Every loader in this module follows INTERFACE_CONTRACT.md (contract version 7)
+Every loader in this module follows INTERFACE_CONTRACT.md (contract version 11)
 and raises DataLoadError with a human-readable message when a file is
 missing, does not parse, predates contract v4, or lacks a required key,
 column, group, or dataset. Anything the contract does not require is ignored,
 so additive backend changes do not break the frontend.
 
+All files live in one bucket (a DigitalOcean Space) under two top-level
+folders, at keys `<folder>/YYYY-MM-DD/<file>`. This module also finds the
+available dates from folder listings whose keys are relative to the folder
+(the `<folder>/` prefix already removed, as S3Downloader.list_keys returns
+them).
+
 This module does no downloading and no UI construction.
 """
 
+import datetime
 import math
 import os
+import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 import h5py
@@ -19,7 +28,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-CONTRACT_VERSION = 7
+CONTRACT_VERSION = 11
 
 OPTIMIZATION_METADATA_KEY = "optimization_metadata.yml"
 PLOT_DATA_KEY = "portfolio_optimization_plot_data.h5"
@@ -36,6 +45,7 @@ PLOT_GROUPS = (
 )
 ARIMA_SUFFIX = "_arima"
 WEIGHT_ZERO_THRESHOLD = 1e-6
+DATE_PREFIX_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})/", re.ASCII)
 
 
 class DataLoadError(Exception):
@@ -88,6 +98,94 @@ class XYData:
 
     xs: np.ndarray
     ys: np.ndarray
+
+
+def key_date(key: str) -> str | None:
+    """
+    Return the date prefix of a key relative to its top-level folder.
+
+    Parameters
+    ----------
+    key : str
+        Key with the `<folder>/` prefix removed, such as
+        "2026-10-09/all_forecasts.csv".
+
+    Returns
+    -------
+    str | None
+        The `YYYY-MM-DD` date, or None if the key does not start with a
+        valid date prefix (including impossible dates such as 2026-13-40
+        and stale objects left directly under the folder by contract v8
+        and earlier).
+    """
+    match = DATE_PREFIX_RE.match(key)
+    if match is None:
+        return None
+    try:
+        datetime.date.fromisoformat(match.group(1))
+    except ValueError:
+        return None
+    return match.group(1)
+
+
+def marker_dates(keys: Iterable[str], filename: str) -> set[str]:
+    """
+    Find the dates whose folder contains a given file.
+
+    Only keys of exactly the form `YYYY-MM-DD/<filename>` count; keys
+    without a valid date prefix or nested deeper are ignored.
+
+    Parameters
+    ----------
+    keys : Iterable[str]
+        Every key listed from one top-level folder, relative to it.
+
+    filename : str
+        File name to look for, such as OPTIMIZATION_METADATA_KEY.
+
+    Returns
+    -------
+    set[str]
+        Dates (`YYYY-MM-DD`) that contain the file.
+    """
+    dates = set()
+    for key in keys:
+        date = key_date(key)
+        if date is not None and key == f"{date}/{filename}":
+            dates.add(date)
+    return dates
+
+
+def available_dates(
+    portfolio_keys: Iterable[str], forecast_keys: Iterable[str]
+) -> list[str]:
+    """
+    Find the dates that are complete in both top-level folders.
+
+    Per the contract, a date is available only when the portfolio folder
+    has `YYYY-MM-DD/optimization_metadata.yml` (uploaded last, so it marks
+    a complete date) and the time series folder has
+    `YYYY-MM-DD/all_forecasts.csv`. Dates need not be consecutive.
+
+    Parameters
+    ----------
+    portfolio_keys : Iterable[str]
+        Every key in the PORTFOLIO_OPTIMIZATION_SPACE_NAME folder, relative
+        to the folder.
+
+    forecast_keys : Iterable[str]
+        Every key in the TIME_SERIES_SPACE_NAME folder, relative to the
+        folder.
+
+    Returns
+    -------
+    list[str]
+        Available dates, newest first.
+    """
+    dates = marker_dates(portfolio_keys, OPTIMIZATION_METADATA_KEY) & marker_dates(
+        forecast_keys, FORECASTS_KEY
+    )
+    return sorted(dates, reverse=True)
 
 
 def _require_file(path: str, key: str) -> None:
@@ -491,3 +589,48 @@ def live_forecast_date(df: pd.DataFrame) -> pd.Timestamp | None:
         return None
     final_actuals = df[forecast_tickers(df.columns)].iloc[-1]
     return df.index[-1] if final_actuals.isna().all() else None
+
+
+def folder_date_warnings(
+    date: str,
+    metadata: OptimizationMetadata | None,
+    forecasts: pd.DataFrame | None,
+) -> list[str]:
+    """
+    Check that the files in a date folder describe that date.
+
+    Per the contract, the folder date equals `date_updated.date_to` in the
+    metadata and the last date with an actual price in the forecasts.
+    Files that are not available are skipped.
+
+    Parameters
+    ----------
+    date : str
+        The folder date (`YYYY-MM-DD`).
+
+    metadata : OptimizationMetadata | None
+        Loaded optimization_metadata.yml from that folder, if available.
+
+    forecasts : pd.DataFrame | None
+        Loaded all_forecasts.csv from that folder, if available.
+
+    Returns
+    -------
+    list[str]
+        Human-readable warnings; empty if everything agrees.
+    """
+    warnings = []
+    if metadata is not None and metadata.date_to != date:
+        warnings.append(
+            f"`{OPTIMIZATION_METADATA_KEY}` in folder {date} has data through "
+            f"{metadata.date_to}."
+        )
+    if forecasts is not None:
+        as_of = last_actual_date(forecasts)
+        as_of_text = as_of.date().isoformat() if as_of is not None else None
+        if as_of_text != date:
+            warnings.append(
+                f"`{FORECASTS_KEY}` in folder {date} has actual prices through "
+                f"{as_of_text or 'no date'}."
+            )
+    return warnings

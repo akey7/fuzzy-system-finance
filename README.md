@@ -19,6 +19,8 @@ A simple portfolio optimization and time series analysis app. It is the front en
 
 The files the backend delivers, and how the app must read them, are specified in [`INTERFACE_CONTRACT.md`](INTERFACE_CONTRACT.md). That file is a read-only mirror of the copy in the backend repo. The app requires contract v4 or later data; older files are reported on the dashboard instead of being displayed.
 
+All data lives in one DigitalOcean Space (one S3 bucket) with two top-level folders, one for portfolio optimization and one for time series forecasts. The backend stores each run's files in a date folder inside each, at keys `<folder>/YYYY-MM-DD/<file>`, where the date is the last NYSE trading day in the data. A dropdown at the top of the app lists the dates whose data is complete in both folders, newest first, and selects the newest by default. The list is refreshed on every page load, and both tabs show data from the selected date only. Objects directly under a top-level folder (left by older backend versions) are ignored. The read-only access key needs permission to **list** the Space as well as to read objects.
+
 **Not investment advice.** This is a hobby project, and every value it shows is a backtest or model output.
 
 ## Installation
@@ -92,24 +94,28 @@ Development is on macOS while Hugging Face runs Debian Linux, so the environment
 
 On the production deployment on HuggingFace Spaces, these environment variables are held by the secrets manager. On a development environment, these are managed in a `.env` file **that should never be committed to GitHub or HuggingFace**.
 
-1. `FSF_FRONT_END_BUCKET_ENDPOINT`, `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_READ_ONLY`, `FSF_FRONT_END_BUCKET_READ_ONLY_KEY_ID`: Specifications of the S3 bucket hosted on DigitalOcean. This bucket specification points the app to the files from the backend.
+1. `FSF_FRONT_END_BUCKET_ENDPOINT`: the **region-only** endpoint, `https://<region>.digitaloceanspaces.com`. Do **not** use the Space-specific "origin endpoint" (`https://<space>.<region>.digitaloceanspaces.com`); with it, listing the available dates fails with `NoSuchKey`.
 
-2. `PORTFOLIO_OPTIMIZATION_SPACE_NAME`: DigitalOcean space name for portfolio optimization files.
+2. `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_READ_ONLY`, `FSF_FRONT_END_BUCKET_READ_ONLY_KEY_ID`: region and read-only access key for the Space.
 
-3. `TIME_SERIES_SPACE_NAME`: DigitalOcean space name for time series analysis data.
+3. `FSF_FRONT_END_BUCKET_NAME`: name of the DigitalOcean Space (the S3 bucket) that holds all the data.
+
+4. `PORTFOLIO_OPTIMIZATION_SPACE_NAME`: despite its name, the **top-level folder** inside the Space that holds the portfolio optimization files (e.g. `portfolio-optimization`).
+
+5. `TIME_SERIES_SPACE_NAME`: despite its name, the **top-level folder** inside the Space that holds the time series forecasts (e.g. `time-series`).
 
 ## Purposes of folders and scripts
 
 ### Folders
 
-1. `input/`: Holds input data downloaded from backend. If it does not exist, `app.py` creates it before access.
+1. `input/`: Holds input data downloaded from backend, one folder per date: `input/YYYY-MM-DD/<file>`, one folder per date viewed. If it does not exist, `app.py` creates it before access. Files directly in `input/` (from app versions before the date folders) are no longer used and can be deleted.
 
-2. `tests/`: Unit tests for the data loaders. They build synthetic files in a temporary folder and never touch `input/`. Run them from the repo root with `uv run pytest`.
+2. `tests/`: Unit tests for the data loaders, the available-date logic, and bucket listing. They build synthetic files in a temporary folder or use a fake S3 client, and never touch `input/` or the network. Run them from the repo root with `uv run pytest`.
 
 ### Scripts
 
 | Filename           | Standalone Execution? | Purpose                                                                                  |
 | ------------------ | --------------------- | ---------------------------------------------------------------------------------------- |
 | `app.py`           | Yes                   | Run the Fuzzy System Finance Gradio app.                                                 |
-| `s3_downloader.py` | No                    | Downloads data from S3 buckets for display on the app.                                   |
-| `data_loading.py`  | No                    | Loads and validates the downloaded files against `INTERFACE_CONTRACT.md`.                |
+| `s3_downloader.py` | No                    | Lists folders in the Space and downloads data from it for display on the app.            |
+| `data_loading.py`  | No                    | Finds available dates and loads and validates the downloaded files against `INTERFACE_CONTRACT.md`. |

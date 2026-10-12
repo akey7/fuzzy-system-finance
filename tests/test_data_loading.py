@@ -15,8 +15,12 @@ import yaml
 from data_loading import (
     PLOT_GROUPS,
     DataLoadError,
+    available_dates,
     clean_weights,
+    folder_date_warnings,
     forecast_tickers,
+    key_date,
+    marker_dates,
     last_actual_date,
     live_forecast_date,
     load_forecasts,
@@ -263,3 +267,72 @@ def test_forecasts_non_numeric_column(tmp_path):
     )
     with pytest.raises(DataLoadError, match="GLD_arima"):
         load_forecasts(path)
+
+
+# Date prefixes and availability
+
+
+@pytest.mark.parametrize(
+    "key, expected",
+    [
+        ("2026-10-09/all_forecasts.csv", "2026-10-09"),
+        ("2026-10-09/", "2026-10-09"),
+        ("all_forecasts.csv", None),  # stale root-level object (contract v8 and earlier)
+        ("2026-13-40/all_forecasts.csv", None),  # impossible date
+        ("2026-1-9/all_forecasts.csv", None),  # not zero-padded
+        ("x2026-10-09/all_forecasts.csv", None),
+        ("2026-10-09all_forecasts.csv", None),
+    ],
+)
+def test_key_date(key, expected):
+    assert key_date(key) == expected
+
+
+def test_marker_dates_requires_exact_key():
+    keys = [
+        "2026-10-09/optimization_metadata.yml",
+        "2026-10-08/portfolio_optimization_plot_data.h5",  # no marker
+        "2026-10-07/nested/optimization_metadata.yml",  # nested too deep
+        "optimization_metadata.yml",  # stale root-level object
+        "2026-02-30/optimization_metadata.yml",  # impossible date
+    ]
+    assert marker_dates(keys, "optimization_metadata.yml") == {"2026-10-09"}
+
+
+def test_available_dates_needs_both_buckets_newest_first():
+    portfolio_keys = [
+        "2026-10-09/optimization_metadata.yml",
+        "2026-10-09/portfolio_optimization_plot_data.h5",
+        "2026-10-06/optimization_metadata.yml",
+        "2026-09-30/optimization_metadata.yml",
+        "2026-10-02/portfolio_optimization_plot_data.h5",  # .yml not uploaded yet
+        "optimization_metadata.yml",
+    ]
+    forecast_keys = [
+        "2026-10-09/all_forecasts.csv",
+        "2026-10-06/all_forecasts.csv",
+        "2026-10-02/all_forecasts.csv",
+        "2026-10-01/all_forecasts.csv",  # forecasts only
+        "all_forecasts.csv",
+    ]
+    assert available_dates(portfolio_keys, forecast_keys) == [
+        "2026-10-09",
+        "2026-10-06",
+    ]
+
+
+def test_available_dates_empty():
+    assert available_dates([], ["2026-10-09/all_forecasts.csv"]) == []
+
+
+def test_folder_date_warnings(tmp_path):
+    metadata = load_optimization_metadata(write_yaml(tmp_path / "m.yml", v7_metadata()))
+    forecasts = load_forecasts(write_csv(tmp_path / "f.csv", FORECASTS_CSV))
+    # v7_metadata() has date_to 2026-10-09; FORECASTS_CSV has actuals through 2026-10-08.
+    assert folder_date_warnings("2026-10-09", metadata, None) == []
+    assert folder_date_warnings("2026-10-08", None, forecasts) == []
+    assert folder_date_warnings("2026-10-09", None, None) == []
+    warnings = folder_date_warnings("2026-10-09", metadata, forecasts)
+    assert len(warnings) == 1
+    assert "all_forecasts.csv" in warnings[0]
+    assert len(folder_date_warnings("2026-10-07", metadata, forecasts)) == 2
