@@ -158,8 +158,11 @@ class FSFinance:
         select_df = select_df.dropna(subset=["Adjusted Close ($)"])
         select_df["Ticker"] = select_df["Ticker"].apply(self.friendly_col_name)
         select_df["Adjusted Close ($)"] = select_df["Adjusted Close ($)"].round(2)
-        select_df["pred_date"] = (
-            select_df["pred_date"] + pd.Timedelta(hours=16)
+        # Add the offset in NumPy with an explicit unit; pandas 2.x with
+        # NumPy >= 2.5 warns about a unitless timedelta for Series + Timedelta.
+        market_close = select_df["pred_date"].to_numpy() + np.timedelta64(16, "h")
+        select_df["pred_date"] = pd.Series(
+            market_close, index=select_df.index
         ).dt.tz_localize(MARKET_TIMEZONE)
         select_df.rename(columns={"pred_date": "Date"}, inplace=True)
         return select_df
