@@ -1,0 +1,22 @@
+# Keeps uv.lock and requirements.txt in sync with pyproject.toml on every commit.
+# Hugging Face Spaces installs only from requirements.txt, so it must never be stale.
+# Install the hook once with: uv run pre-commit install
+# Update `rev` to the latest uv release with: uv run pre-commit autoupdate
+repos:
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.13.0
+    hooks:
+      # Re-lock when pyproject.toml changes.
+      - id: uv-lock
+      # Regenerate requirements.txt when uv.lock changes. These arguments must
+      # match the export command documented in README.md.
+      - id: uv-export
+        args:
+          [
+            "--format",
+            "requirements-txt",
+            "--no-dev",
+            "--no-hashes",
+            "-o",
+            "requirements.txt",
+          ]
