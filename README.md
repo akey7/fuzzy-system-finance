@@ -100,9 +100,11 @@ On the production deployment on HuggingFace Spaces, these environment variables 
 
 3. `FSF_FRONT_END_BUCKET_NAME`: name of the DigitalOcean Space (the S3 bucket) that holds all the data.
 
-4. `PORTFOLIO_OPTIMIZATION_SPACE_NAME`: despite its name, the **top-level folder** inside the Space that holds the portfolio optimization files (e.g. `portfolio-optimization`).
+4. `FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER`: the **top-level folder** inside the Space that holds the portfolio optimization files (e.g. `portfolio-optimization`).
 
-5. `TIME_SERIES_SPACE_NAME`: despite its name, the **top-level folder** inside the Space that holds the time series forecasts (e.g. `time-series`).
+5. `FSF_FRONT_END_TIME_SERIES_FOLDER`: the **top-level folder** inside the Space that holds the time series forecasts (e.g. `time-series`).
+
+Dev and production share the one Space and differ only in the two folder names, so these two variables select the environment. Use the same pair of values as the backend for the same environment. (Before contract v13 the folder variables were named `PORTFOLIO_OPTIMIZATION_SPACE_NAME` and `TIME_SERIES_SPACE_NAME`; the old names are no longer read.)
 
 ## Purposes of folders and scripts
 

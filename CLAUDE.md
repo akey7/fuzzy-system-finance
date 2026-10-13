@@ -77,7 +77,7 @@ Docstrings throughout the Python modules describe current behavior; read them be
   - `FSF_FRONT_END_BUCKET_ENDPOINT`: the **region-only** endpoint (`https://<region>.digitaloceanspaces.com`), never the Space-specific one.
   - `FSF_FRONT_END_BUCKET_REGION`, `FSF_FRONT_END_BUCKET_READ_ONLY`, `FSF_FRONT_END_BUCKET_READ_ONLY_KEY_ID`: region and read-only access key.
   - `FSF_FRONT_END_BUCKET_NAME`: the one DigitalOcean Space (S3 bucket) holding all data. Pass it as the S3 `Bucket`.
-  - `PORTFOLIO_OPTIMIZATION_SPACE_NAME`, `TIME_SERIES_SPACE_NAME`: despite their names, **top-level folder names** inside that Space, not buckets. Full keys are `<folder>/YYYY-MM-DD/<file>`; list with `Prefix="<folder>/"`.
+  - `FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER`, `FSF_FRONT_END_TIME_SERIES_FOLDER`: **top-level folder names** inside that Space, not buckets. Full keys are `<folder>/YYYY-MM-DD/<file>`; list with `Prefix="<folder>/"`. Dev and production share the one Space and differ only in these folder names. (Named `PORTFOLIO_OPTIMIZATION_SPACE_NAME` / `TIME_SERIES_SPACE_NAME` before contract v13; do not read the old names.)
 - Read configuration from environment variables only; never hardcode credentials, endpoints, or bucket or folder names.
 - The app is deployed to a public Space. Do not add code that logs, prints, or displays secrets, and do not add files that would expose them.
 

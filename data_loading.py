@@ -1,7 +1,7 @@
 """
 Load and validate the files the backend delivers to the S3 buckets.
 
-Every loader in this module follows INTERFACE_CONTRACT.md (contract version 11)
+Every loader in this module follows INTERFACE_CONTRACT.md (contract version 13)
 and raises DataLoadError with a human-readable message when a file is
 missing, does not parse, predates contract v4, or lacks a required key,
 column, group, or dataset. Anything the contract does not require is ignored,
@@ -28,7 +28,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-CONTRACT_VERSION = 11
+CONTRACT_VERSION = 13
 
 OPTIMIZATION_METADATA_KEY = "optimization_metadata.yml"
 PLOT_DATA_KEY = "portfolio_optimization_plot_data.h5"
@@ -170,11 +170,11 @@ def available_dates(
     Parameters
     ----------
     portfolio_keys : Iterable[str]
-        Every key in the PORTFOLIO_OPTIMIZATION_SPACE_NAME folder, relative
+        Every key in the FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER folder, relative
         to the folder.
 
     forecast_keys : Iterable[str]
-        Every key in the TIME_SERIES_SPACE_NAME folder, relative to the
+        Every key in the FSF_FRONT_END_TIME_SERIES_FOLDER folder, relative to the
         folder.
 
     Returns

@@ -32,11 +32,10 @@ from data_loading import (
 
 INPUT_FOLDER = "input"
 MARKET_TIMEZONE = "America/New_York"
-# One bucket (DigitalOcean Space) holds two top-level folders. Despite their
-# names, the *_SPACE_NAME variables hold folder names (see the contract).
+# One bucket (DigitalOcean Space) holds two top-level folders (see the contract).
 BUCKET_NAME_ENV = "FSF_FRONT_END_BUCKET_NAME"
-PORTFOLIO_FOLDER_ENV = "PORTFOLIO_OPTIMIZATION_SPACE_NAME"
-TIME_SERIES_FOLDER_ENV = "TIME_SERIES_SPACE_NAME"
+PORTFOLIO_FOLDER_ENV = "FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER"
+TIME_SERIES_FOLDER_ENV = "FSF_FRONT_END_TIME_SERIES_FOLDER"
 
 DISCLAIMER_MD = (
     "**Not investment advice.** This is a hobby data science project. Every "
