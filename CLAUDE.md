@@ -24,7 +24,7 @@ These hold even if a human asks otherwise in-session (e.g., "just commit this," 
 A simple portfolio optimization and time series analysis app. It is the **frontend** for separate backend analysis scripts that live in a **different repo**.
 
 - **Backend (separate repo):** does the modeling and optimization (minimum-variance and maximum-Sharpe portfolio allocation; ARIMA modeling of the last trading month of asset prices) and publishes results.
-- **Frontend (this repo):** a Gradio app deployed on Hugging Face Spaces. It lists the dated backend runs in DigitalOcean Spaces (S3-compatible), lets the user pick a date from a dropdown (newest by default), and displays that date's output on a dashboard with two tabs: **ARIMA / time series** and **Portfolio optimization**.
+- **Frontend (this repo):** a Gradio app deployed on Hugging Face Spaces. It lists the dated backend runs in DigitalOcean Spaces (S3-compatible), lets the user pick a date from a dropdown (newest by default), and displays that date's output on a single page with two stacked sections: **Timeseries Analysis** (ARIMA forecasts) on top and **Portfolio Optimization** below.
 - **Data flow:** backend -> one DigitalOcean Space (S3 bucket; keys `<folder>/YYYY-MM-DD/<file>`, one date folder per run) -> `s3_downloader.py` (list keys, download) -> `data_loading.py` (available dates, validation) -> `input/YYYY-MM-DD/` -> `app.py` -> Gradio UI.
 - **Per-visitor state:** the Gradio app object is shared by all visitors. Keep anything that depends on a visitor's selection (date, ticker, available-date list) in Gradio inputs or `gr.State`, never on `self`. The in-memory cache of loaded dates in `app.py` is shared deliberately and keyed by the ETags of each date's marker files.
 
@@ -89,7 +89,7 @@ Docstrings throughout the Python modules describe current behavior; read them be
 - **Tests:** you may write or update tests, but you cannot run them. Provide the exact command (`uv run pytest`) and ask the human to run it and share results. Pytest settings live in `[tool.pytest.ini_options]` in `pyproject.toml`; do not add a `pytest.ini`, which would take precedence over them.
 - **Scope:** make focused changes. For larger changes (e.g., restructuring the UI or the data-loading layer), outline the plan and confirm with the human before editing many files.
 - **Finance/statistics changes:** state assumptions explicitly (risk-free rate, annualization factor, return type, constraints, stationarity, differencing order). Label what is displayed clearly so a general data science audience can interpret it. Because you cannot execute code, do not claim numerical results are verified; say what the human should check when they run it.
-- **UI changes:** keep the two-tab structure (ARIMA / Portfolio optimization) unless asked to change it. Favor clear titles, axis labels, units, and short explanatory text. Handle missing or stale data with a helpful message instead of a crash.
+- **UI changes:** keep the single-page layout (no tabs) with `# Timeseries Analysis` stacked above `# Portfolio Optimization` unless asked to change it. These `#` section headings must stay the only top-level headings on the page; markdown inside a section starts at `##`. Favor clear titles, axis labels, units, and short explanatory text. Handle missing or stale data with a helpful message instead of a crash.
 
 ## When unsure
 
