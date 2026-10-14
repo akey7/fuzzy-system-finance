@@ -732,8 +732,6 @@ class FSFinance:
         updating the value of an existing gr.LinePlot left the chart empty.
         """
         with gr.Blocks() as app:
-            gr.Markdown(DISCLAIMER_MD)
-
             # Available dates and marker ETags for this visitor's page load.
             marker_state = gr.State({})
             date_dropdown = gr.Dropdown(
@@ -819,6 +817,8 @@ class FSFinance:
                 f"Data format: interface contract v{CONTRACT_VERSION}. "
                 "Data is updated manually, so check the \"Data as of\" dates."
             )
+
+            gr.Markdown(DISCLAIMER_MD)
 
             def on_load():
                 markers, error = self.list_dates()
