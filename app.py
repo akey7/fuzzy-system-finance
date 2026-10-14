@@ -679,7 +679,7 @@ class FSFinance:
             last = backtest.index.max().date()
             lines = [
                 "### Backtest RMSE",
-                f"# ${self.calc_rmse(forecasts, ticker):.2f}",
+                f"## ${self.calc_rmse(forecasts, ticker):.2f}",
                 f"Root mean squared error of the one-day-ahead forecast against the "
                 f"actual adjusted close, in US dollars, over {len(backtest)} trading "
                 f"days ({first} to {last}).",
@@ -696,7 +696,8 @@ class FSFinance:
 
     def timeseries_intro_markdown(self, forecasts):
         """
-        Generate the explanatory markdown at the top of the time series tab.
+        Generate the explanatory markdown at the top of the Timeseries
+        Analysis section.
 
         Parameters
         ----------
@@ -725,9 +726,11 @@ class FSFinance:
         """
         Run the Gradio app.
 
-        On every page load the available dates are listed and the newest
-        is selected. Changing the date reloads both tabs from that date's
-        folder; changing the ticker redraws the time series plot. Plots
+        The page is a single column: the date dropdown, then the Timeseries
+        Analysis section, then the Portfolio Optimization section, each under
+        a `#` heading. On every page load the available dates are listed and
+        the newest is selected. Changing the date reloads both sections from
+        that date's folder; changing the ticker redraws the time series plot. Plots
         are rebuilt with gr.render() rather than updated in place, because
         updating the value of an existing gr.LinePlot left the chart empty.
         """
@@ -743,75 +746,73 @@ class FSFinance:
             listing_md = gr.Markdown("")
             date_warning_md = gr.Markdown("")
 
-            with gr.Tabs():
-                with gr.Tab("Portfolio Optimization"):
+            # Both sections are stacked on one page: Timeseries Analysis on
+            # top, Portfolio Optimization below. Inner headings start at ##
+            # so these # section headings stay the most prominent.
+            gr.Markdown("# Timeseries Analysis")
+            with gr.Row():
+                with gr.Column(scale=1):
+                    timeseries_intro_md = gr.Markdown("")
+                    ticker_dropdown = gr.Dropdown(
+                        choices=[],
+                        value=None,
+                        label=None,
+                        show_label=False,
+                        visible=False,
+                    )
+                    arima_rmse_md = gr.Markdown("", container=True)
+
+                with gr.Column(scale=2):
 
                     @gr.render(
-                        inputs=[date_dropdown, marker_state],
-                        triggers=[date_dropdown.change],
+                        inputs=[date_dropdown, marker_state, ticker_dropdown],
+                        triggers=[date_dropdown.change, ticker_dropdown.change],
                     )
-                    def render_portfolio(date, markers):
+                    def render_timeseries_plot(date, markers, ticker):
                         data = self.selected_data(date, markers)
-                        if data is None:
+                        if data is None or data.forecasts is None:
                             return
-                        consistency_md = self.portfolio_consistency_markdown(data)
-                        if consistency_md:
-                            gr.Markdown(consistency_md)
+                        ticker = self.resolve_ticker(data.forecasts, ticker)
+                        self.timeseries_plot(data.forecasts, ticker)
 
-                        with gr.Row():
-                            if data.plot_data is not None:
-                                gr.Plot(
-                                    self.plot_portfolio_optimization(
-                                        data.plot_data, data.metadata
-                                    )
-                                )
-                            else:
-                                gr.Markdown(
-                                    f"**Portfolio plot unavailable.** {data.plot_data_error}"
-                                )
+            gr.Markdown("# Portfolio Optimization")
 
-                        with gr.Row():
-                            if data.metadata is not None:
-                                with gr.Column():
-                                    gr.DataFrame(
-                                        value=self.portfolio_weights_df(data.metadata)
-                                    )
-                                with gr.Column():
-                                    gr.Markdown(
-                                        self.optimization_metadata_markdown(
-                                            data.metadata
-                                        )
-                                    )
-                            else:
-                                gr.Markdown(
-                                    f"**Portfolio summary unavailable.** {data.metadata_error}"
-                                )
+            @gr.render(
+                inputs=[date_dropdown, marker_state],
+                triggers=[date_dropdown.change],
+            )
+            def render_portfolio(date, markers):
+                data = self.selected_data(date, markers)
+                if data is None:
+                    return
+                consistency_md = self.portfolio_consistency_markdown(data)
+                if consistency_md:
+                    gr.Markdown(consistency_md)
 
-                with gr.Tab("Timeseries Analysis"):
-                    with gr.Row():
-                        with gr.Column(scale=1):
-                            timeseries_intro_md = gr.Markdown("")
-                            ticker_dropdown = gr.Dropdown(
-                                choices=[],
-                                value=None,
-                                label=None,
-                                show_label=False,
-                                visible=False,
+                with gr.Row():
+                    if data.plot_data is not None:
+                        gr.Plot(
+                            self.plot_portfolio_optimization(
+                                data.plot_data, data.metadata
                             )
-                            arima_rmse_md = gr.Markdown("", container=True)
+                        )
+                    else:
+                        gr.Markdown(
+                            f"**Portfolio plot unavailable.** {data.plot_data_error}"
+                        )
 
-                        with gr.Column(scale=2):
-
-                            @gr.render(
-                                inputs=[date_dropdown, marker_state, ticker_dropdown],
-                                triggers=[date_dropdown.change, ticker_dropdown.change],
+                with gr.Row():
+                    if data.metadata is not None:
+                        with gr.Column():
+                            gr.DataFrame(value=self.portfolio_weights_df(data.metadata))
+                        with gr.Column():
+                            gr.Markdown(
+                                self.optimization_metadata_markdown(data.metadata)
                             )
-                            def render_timeseries_plot(date, markers, ticker):
-                                data = self.selected_data(date, markers)
-                                if data is None or data.forecasts is None:
-                                    return
-                                ticker = self.resolve_ticker(data.forecasts, ticker)
-                                self.timeseries_plot(data.forecasts, ticker)
+                    else:
+                        gr.Markdown(
+                            f"**Portfolio summary unavailable.** {data.metadata_error}"
+                        )
 
             gr.Markdown(
                 f"Data format: interface contract v{CONTRACT_VERSION}. "
