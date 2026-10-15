@@ -935,7 +935,8 @@ class FSFinance:
     def timeseries_intro_markdown(self, forecasts, forecasts_metadata):
         """
         Generate the explanatory markdown of the Timeseries Analysis
-        section, shown below the metrics panel, including the contract's suggested wording on
+        section, shown below the metrics panel inside a collapsed accordion
+        (whose label serves as the heading), including the contract's suggested wording on
         how the forecasts are made, why d = 1, and the naive baseline.
         Parts about model orders and the naive forecast appear only when
         the date folder has those columns.
@@ -973,7 +974,6 @@ class FSFinance:
         if has_orders:
             how += " Hover over a forecast to see the model behind it."
         lines = [
-            "## Walk-forward ARIMA & naive forecasting (out-of-sample evaluation)",
             "Each point represents a one-day-ahead forecast of adjusted closing price (US $). Models are refit at "
             "each trading day using a rolling window of historical log returns. Training and model selection use "
             "only data available before the forecast date, preventing temporal leakage. Historical predictions are  "
@@ -1010,9 +1010,10 @@ class FSFinance:
         are rebuilt with gr.render() rather than updated in place, because
         updating the value of an existing gr.LinePlot left the chart empty.
         """
-        # Make the accuracy table fill its half of the metrics panel, and
+        # Make the accuracy table fill its half of the metrics panel,
         # highlight the live forecast with a light yellow background (a
-        # muted dark yellow in dark mode, where text is light).
+        # muted dark yellow in dark mode, where text is light), and make the
+        # methods accordion's label bold (its size stays the default).
         css = """
         .metrics-table table { width: 100% !important; }
         .live-forecast {
@@ -1021,6 +1022,9 @@ class FSFinance:
             border-radius: 8px;
         }
         .dark .live-forecast { background: #4A4220 !important; }
+        .methods-accordion .label-wrap > span:first-child {
+            font-weight: 700 !important;
+        }
         """
         with gr.Blocks(css=css) as app:
             # Available dates and marker ETags for this visitor's page load.
@@ -1075,7 +1079,16 @@ class FSFinance:
                 with gr.Column(scale=1):
                     metrics_summary_md = gr.Markdown("")
 
-            timeseries_intro_md = gr.Markdown("")
+            # The methods text is collapsed by default so it does not push the
+            # Portfolio Optimization section far down the page.
+            with gr.Accordion(
+                "Click to learn more about walk-forward ARIMA, naive "
+                "forecasting, and out-of-sample evaluation...",
+                open=False,
+                visible=False,
+                elem_classes=["methods-accordion"],
+            ) as methods_accordion:
+                timeseries_intro_md = gr.Markdown("")
             gr.Markdown("---")
 
             gr.Markdown("# Portfolio Optimization")
@@ -1134,15 +1147,18 @@ class FSFinance:
             def on_date_change(date, markers, ticker):
                 data = self.selected_data(date, markers)
                 hidden_tickers = gr.update(choices=[], value=None, visible=False)
+                hidden_methods = gr.update(visible=False)
                 if data is None:
-                    return "", hidden_tickers, "", ""
+                    return "", hidden_tickers, "", "", hidden_methods
                 warning_md = self.date_warning_markdown(data)
                 if data.forecasts is None:
+                    # Shown under the heading, not in the collapsed accordion.
                     return (
                         warning_md,
                         hidden_tickers,
-                        "",
                         f"**Forecasts unavailable.** {data.forecasts_error}",
+                        "",
+                        hidden_methods,
                     )
                 tickers = forecast_tickers(data.forecasts.columns)
                 return (
@@ -1156,6 +1172,7 @@ class FSFinance:
                     self.timeseries_intro_markdown(
                         data.forecasts, data.forecasts_metadata
                     ),
+                    gr.update(visible=True),
                 )
 
             def on_ticker_text(date, markers, ticker):
@@ -1186,6 +1203,7 @@ class FSFinance:
                     ticker_dropdown,
                     timeseries_as_of_md,
                     timeseries_intro_md,
+                    methods_accordion,
                 ],
             )
             gr.on(
