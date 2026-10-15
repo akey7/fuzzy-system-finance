@@ -23,7 +23,7 @@ All data lives in one DigitalOcean Space (one S3 bucket) with two top-level fold
 
 The **Timeseries Analysis** section plots, for the selected ticker, the actual adjusted close, the one-day-ahead ARIMA forecast, and (for dates from contract v19 on) a naive forecast equal to the most recent observed close. Hovering over an ARIMA point shows the model behind it, ARIMA(p, d, q) on log prices, when the date's data includes model orders. Forecast accuracy (RMSE, MAE, MAPE, relative MAE, skill, and directional accuracy over the last 20 trading days) is read from the backend's `all_forecasts_metadata.yml`; the app computes no error metrics itself. Dates published before contract v21 have no such file, so the app says that metrics are not available for them.
 
-**Not investment advice.** This is a hobby project, and every value it shows is a backtest or model output.
+**Not investment advice.** Every value shown is a backtest or model output computed from historical prices, and none of it predicts future results or recommends any investment.
 
 ## Installation
 

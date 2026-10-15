@@ -809,10 +809,13 @@ class FSFinance:
     def forecast_metrics_markdown(self, forecasts_metadata, unavailable_text, ticker):
         """
         Generate markdown of a ticker's forecast accuracy from
-        all_forecasts_metadata.yml: RMSE, MAE, and MAPE for the ARIMA and
-        naive forecasts, relative MAE and skill, and ARIMA directional
-        accuracy. Nothing is computed here; the backend publishes every
-        metric so all surfaces report the same numbers.
+        all_forecasts_metadata.yml, in two parts for the two halves of the
+        metrics panel: a table of RMSE, MAE, and MAPE for the ARIMA and
+        naive forecasts and ARIMA directional accuracy, and a summary of
+        relative MAE, skill, what they mean, and how to read the metrics
+        (metrics_note_markdown). Nothing is computed here;
+        the backend publishes every metric so all surfaces report the same
+        numbers.
 
         Parameters
         ----------
@@ -827,15 +830,17 @@ class FSFinance:
 
         Returns
         -------
-        str
-            Markdown string for UI.
+        tuple[str, str]
+            Markdown for the table half and for the summary half (empty
+            when there are no metrics).
         """
         lines = ["### Forecast accuracy"]
         if forecasts_metadata is None:
-            return os.linesep.join(lines + [unavailable_text or ""])
+            return os.linesep.join(lines + [unavailable_text or ""]), ""
         m = forecasts_metadata.metrics_for(ticker)
         if m is None:
-            return os.linesep.join(lines + [f"No accuracy metrics were published for {ticker}."])
+            message = f"No accuracy metrics were published for {ticker}."
+            return os.linesep.join(lines + [message]), ""
         if m.arima.directional_accuracy is None:
             direction = "n/a"
         else:
@@ -865,18 +870,23 @@ class FSFinance:
             f"| MAPE (%) | {format_value(m.arima.mape, '.2f')} "
             f"| {format_value(m.naive.mape, '.2f')} |",
             f"| Directional accuracy | {direction} | — |",
-            "",
+        ]
+        summary = [
+            "### ARIMA vs. naive",
             f"**Relative MAE (ARIMA ÷ naive):** {format_value(m.relative_mae, '.3f')}  ",
             f"**Skill (1 − relative MAE):** {format_value(m.skill, '.3f')}",
             "",
             verdict,
+            "",
+            self.metrics_note_markdown(forecasts_metadata),
         ]
-        return os.linesep.join(lines)
+        return os.linesep.join(lines), os.linesep.join(summary)
 
     def metrics_note_markdown(self, forecasts_metadata):
         """
         Generate the contract's suggested wording for interpreting the
-        forecast accuracy metrics, shown below the plot.
+        forecast accuracy metrics, shown at the end of the summary half of
+        the metrics panel.
 
         Parameters
         ----------
@@ -903,10 +913,29 @@ class FSFinance:
             f"{days} days is a small sample, so treat these as indicative."
         )
 
+    def timeseries_as_of_markdown(self, forecasts):
+        """
+        Generate the "Data as of" line shown directly below the Timeseries
+        Analysis heading: the last date with an actual price.
+
+        Parameters
+        ----------
+        forecasts : pd.DataFrame
+            Forecasts from data_loading.load_forecasts().
+
+        Returns
+        -------
+        str
+            String of markdown
+        """
+        as_of = last_actual_date(forecasts)
+        as_of_text = as_of.date() if as_of is not None else "no actual prices yet"
+        return f"**Data as of:** {as_of_text}"
+
     def timeseries_intro_markdown(self, forecasts, forecasts_metadata):
         """
-        Generate the explanatory markdown at the top of the Timeseries
-        Analysis section, including the contract's suggested wording on
+        Generate the explanatory markdown of the Timeseries Analysis
+        section, shown below the metrics panel, including the contract's suggested wording on
         how the forecasts are made, why d = 1, and the naive baseline.
         Parts about model orders and the naive forecast appear only when
         the date folder has those columns.
@@ -925,8 +954,6 @@ class FSFinance:
         str
             String of markdown
         """
-        as_of = last_actual_date(forecasts)
-        as_of_text = as_of.date() if as_of is not None else "no actual prices yet"
         has_orders = any(
             str(column).endswith(ORDER_SUFFIXES) for column in forecasts.columns
         )
@@ -951,7 +978,6 @@ class FSFinance:
             "each trading day using a rolling window of historical log returns. Training and model selection use "
             "only data available before the forecast date, preventing temporal leakage. Historical predictions are  "
             "evaluated against subsequently observed prices; the final point represents the next trading day's forecast. ",
-            f"**Data as of:** {as_of_text}",
             "### How these forecasts are made",
             how,
         ]
@@ -984,7 +1010,19 @@ class FSFinance:
         are rebuilt with gr.render() rather than updated in place, because
         updating the value of an existing gr.LinePlot left the chart empty.
         """
-        with gr.Blocks() as app:
+        # Make the accuracy table fill its half of the metrics panel, and
+        # highlight the live forecast with a light yellow background (a
+        # muted dark yellow in dark mode, where text is light).
+        css = """
+        .metrics-table table { width: 100% !important; }
+        .live-forecast {
+            background: #FFF7D1 !important;
+            padding: 12px 16px !important;
+            border-radius: 8px;
+        }
+        .dark .live-forecast { background: #4A4220 !important; }
+        """
+        with gr.Blocks(css=css) as app:
             # Available dates and marker ETags for this visitor's page load.
             marker_state = gr.State({})
             date_dropdown = gr.Dropdown(
@@ -1000,9 +1038,12 @@ class FSFinance:
             # top, Portfolio Optimization below. Inner headings start at ##
             # so these # section headings stay the most prominent.
             gr.Markdown("# Timeseries Analysis")
-            # Full-width explanation, then the ticker, live forecast, and
-            # accuracy metrics beside the plot, then how to read the metrics.
-            timeseries_intro_md = gr.Markdown("")
+            timeseries_as_of_md = gr.Markdown("")
+            # The ticker and live forecast beside the plot; then a full-width
+            # gray panel with the accuracy table (left half) and the
+            # ARIMA-vs-naive summary followed by how to read the metrics
+            # (right half); then the full-width explanation of the forecasts
+            # and a horizontal rule.
             with gr.Row():
                 with gr.Column(scale=1):
                     ticker_dropdown = gr.Dropdown(
@@ -1011,8 +1052,9 @@ class FSFinance:
                         label="Ticker",
                         visible=False,
                     )
-                    live_forecast_md = gr.Markdown("")
-                    metrics_md = gr.Markdown("", container=True)
+                    live_forecast_md = gr.Markdown(
+                        "", elem_classes=["live-forecast"], visible=False
+                    )
 
                 with gr.Column(scale=2):
 
@@ -1027,7 +1069,14 @@ class FSFinance:
                         ticker = self.resolve_ticker(data.forecasts, ticker)
                         self.timeseries_plot(data.forecasts, ticker)
 
-            metrics_note_md = gr.Markdown("")
+            with gr.Row(variant="panel", equal_height=False):
+                with gr.Column(scale=1):
+                    metrics_md = gr.Markdown("", elem_classes=["metrics-table"])
+                with gr.Column(scale=1):
+                    metrics_summary_md = gr.Markdown("")
+
+            timeseries_intro_md = gr.Markdown("")
+            gr.Markdown("---")
 
             gr.Markdown("# Portfolio Optimization")
 
@@ -1092,8 +1141,8 @@ class FSFinance:
                     return (
                         warning_md,
                         hidden_tickers,
-                        f"**Forecasts unavailable.** {data.forecasts_error}",
                         "",
+                        f"**Forecasts unavailable.** {data.forecasts_error}",
                     )
                 tickers = forecast_tickers(data.forecasts.columns)
                 return (
@@ -1103,22 +1152,26 @@ class FSFinance:
                         value=self.resolve_ticker(data.forecasts, ticker),
                         visible=True,
                     ),
+                    self.timeseries_as_of_markdown(data.forecasts),
                     self.timeseries_intro_markdown(
                         data.forecasts, data.forecasts_metadata
                     ),
-                    self.metrics_note_markdown(data.forecasts_metadata),
                 )
 
             def on_ticker_text(date, markers, ticker):
                 data = self.selected_data(date, markers)
                 if data is None or data.forecasts is None:
-                    return "", ""
+                    return gr.update(value="", visible=False), "", ""
                 ticker = self.resolve_ticker(data.forecasts, ticker)
+                table_md, summary_md = self.forecast_metrics_markdown(
+                    data.forecasts_metadata, data.forecasts_metadata_error, ticker
+                )
+                live_md = self.live_forecast_markdown(data.forecasts, ticker)
+                # Hidden when there is no live row, so no empty yellow box shows.
                 return (
-                    self.live_forecast_markdown(data.forecasts, ticker),
-                    self.forecast_metrics_markdown(
-                        data.forecasts_metadata, data.forecasts_metadata_error, ticker
-                    ),
+                    gr.update(value=live_md, visible=bool(live_md)),
+                    table_md,
+                    summary_md,
                 )
 
             app.load(
@@ -1131,15 +1184,15 @@ class FSFinance:
                 outputs=[
                     date_warning_md,
                     ticker_dropdown,
+                    timeseries_as_of_md,
                     timeseries_intro_md,
-                    metrics_note_md,
                 ],
             )
             gr.on(
                 triggers=[date_dropdown.change, ticker_dropdown.change],
                 fn=on_ticker_text,
                 inputs=[date_dropdown, marker_state, ticker_dropdown],
-                outputs=[live_forecast_md, metrics_md],
+                outputs=[live_forecast_md, metrics_md, metrics_summary_md],
             )
 
         app.launch()
