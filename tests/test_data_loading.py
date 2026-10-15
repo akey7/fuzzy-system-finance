@@ -15,12 +15,15 @@ import yaml
 from data_loading import (
     PLOT_GROUPS,
     DataLoadError,
+    arima_orders,
     available_dates,
     clean_weights,
     folder_date_warnings,
     forecast_tickers,
     key_date,
+    load_forecasts_metadata,
     marker_dates,
+    naive_column,
     last_actual_date,
     live_forecast_date,
     load_forecasts,
@@ -336,3 +339,196 @@ def test_folder_date_warnings(tmp_path):
     assert len(warnings) == 1
     assert "all_forecasts.csv" in warnings[0]
     assert len(folder_date_warnings("2026-10-07", metadata, forecasts)) == 2
+
+
+# all_forecasts.csv, contract v16-v21 columns
+
+# Six columns per ticker. NVDA's close is treated as missing before
+# 2026-10-08, so that row has an empty forecast and empty orders (v20),
+# while its naive forecast is still present. The last row is the live one.
+V21_FORECASTS_CSV = (
+    "pred_date,GLD_arima,GLD_arima_p,GLD_arima_d,GLD_arima_q,GLD_naive,GLD,"
+    "NVDA_arima,NVDA_arima_p,NVDA_arima_d,NVDA_arima_q,NVDA_naive,NVDA\n"
+    "2026-10-07 17:00:00,300.0,1,1,0,299.0,301.0,180.0,0,1,1,181.0,182.0\n"
+    "2026-10-08 17:00:00,302.0,1,1,1,301.0,300.0,,,,,182.0,179.0\n"
+    "2026-10-09 17:00:00,301.0,0,1,1,300.0,,180.5,1,1,0,179.0,\n"
+)
+
+
+def test_v21_forecasts_tickers_by_exact_suffix(tmp_path):
+    df = load_forecasts(write_csv(tmp_path / "f.csv", V21_FORECASTS_CSV))
+    # Order and naive columns must not be mistaken for tickers or forecasts.
+    assert forecast_tickers(df.columns) == ["GLD", "NVDA"]
+    assert last_actual_date(df) == pd.Timestamp("2026-10-08")
+    assert live_forecast_date(df) == pd.Timestamp("2026-10-09")
+
+
+def test_v21_order_columns_are_nullable_integers(tmp_path):
+    df = load_forecasts(write_csv(tmp_path / "f.csv", V21_FORECASTS_CSV))
+    orders = arima_orders(df, "NVDA")
+    assert list(orders.columns) == ["p", "d", "q"]
+    assert str(orders["p"].dtype) == "Int64"
+    first = orders.loc[pd.Timestamp("2026-10-07")]
+    assert (first["p"], first["d"], first["q"]) == (0, 1, 1)
+    assert orders.loc[pd.Timestamp("2026-10-08")].isna().all()
+    assert pd.isna(df.loc[pd.Timestamp("2026-10-08"), "NVDA_arima"])
+
+
+def test_v21_naive_column(tmp_path):
+    df = load_forecasts(write_csv(tmp_path / "f.csv", V21_FORECASTS_CSV))
+    assert naive_column(df, "GLD") == "GLD_naive"
+    assert df["NVDA_naive"].notna().all()
+
+
+def test_older_forecasts_have_no_optional_columns(tmp_path):
+    df = load_forecasts(write_csv(tmp_path / "f.csv", FORECASTS_CSV))
+    assert naive_column(df, "GLD") is None
+    assert arima_orders(df, "GLD").isna().all().all()
+
+
+def test_pre_v18_orders_without_d(tmp_path):
+    text = "pred_date,GLD_arima,GLD_arima_p,GLD_arima_q,GLD\n2026-10-07,300,1,0,301\n"
+    df = load_forecasts(write_csv(tmp_path / "f.csv", text))
+    orders = arima_orders(df, "GLD").iloc[0]
+    assert orders["p"] == 1 and orders["q"] == 0 and pd.isna(orders["d"])
+
+
+def test_malformed_optional_columns_are_dropped(tmp_path):
+    text = (
+        "pred_date,GLD_arima,GLD_arima_p,GLD_naive,GLD\n"
+        "2026-10-07,300,1.5,abc,301\n"
+    )
+    df = load_forecasts(write_csv(tmp_path / "f.csv", text))
+    # Non-whole order and non-numeric naive value: both ignored, file still loads.
+    assert "GLD_arima_p" not in df.columns
+    assert "GLD_naive" not in df.columns
+    assert forecast_tickers(df.columns) == ["GLD"]
+
+
+# all_forecasts_metadata.yml (contract v21)
+
+
+def v21_forecasts_metadata() -> dict:
+    """
+    Return an all_forecasts_metadata.yml document based on the contract's
+    example, with lowercase ticker keys, a null metric, and an unknown key.
+    """
+    return {
+        "evaluation_window": {
+            "end_date": "2026-10-08",
+            "start_date": "2026-09-10",
+            "target_trading_days": 20,
+        },
+        "forecast_window": {
+            "forecast_date": "2026-10-09",
+            "horizon_trading_days": 1,
+            "training_window_end_date": "2026-10-08",
+            "training_window_returns": 20,
+            "training_window_start_date": "2026-09-09",
+        },
+        "models": {
+            "arima": {"d": 1, "description": "ARIMA(p, 0, q) on daily log returns"},
+            "naive": {"description": "the most recent observed close (random walk)"},
+        },
+        "ticker_metrics": {
+            "gld": {
+                "arima": {
+                    "directional_accuracy": 0.55,
+                    "mae": 1.21,
+                    "mape": 1.32,
+                    "n_directional": 20,
+                    "rmse": 1.52,
+                },
+                "evaluation_end_date": "2026-10-08",
+                "evaluation_start_date": "2026-09-10",
+                "n_evaluated": 20,
+                "naive": {"mae": 1.25, "mape": 1.37, "rmse": 1.58},
+                "relative_mae": 0.968,
+                "skill": 0.032,
+            },
+            "nvda": {
+                "arima": {"directional_accuracy": None, "mae": 2.0, "n_directional": 0},
+                "n_evaluated": 19,
+                "naive": {"mae": 2.5},
+                "relative_mae": 0.8,
+                "skill": None,
+            },
+        },
+        "units": {
+            "directional_accuracy": "fraction",
+            "mae": "usd_per_share",
+            "mape": "percent",
+            "relative_mae": "ratio",
+            "rmse": "usd_per_share",
+            "skill": "ratio",
+        },
+        "some_future_key": [1, 2, 3],
+    }
+
+
+def test_forecasts_metadata_loads(tmp_path):
+    fm = load_forecasts_metadata(write_yaml(tmp_path / "fm.yml", v21_forecasts_metadata()))
+    assert fm.forecast_date == "2026-10-09"
+    assert fm.training_window_end_date == "2026-10-08"
+    assert fm.training_window_returns == 20
+    assert fm.target_trading_days == 20
+    gld = fm.metrics_for("GLD")  # uppercase lookup of a lowercase key
+    assert gld.arima.rmse == 1.52
+    assert gld.naive.mape == 1.37
+    assert gld.arima.n_directional == 20
+    assert gld.skill == 0.032
+
+
+def test_forecasts_metadata_nulls_and_missing_values(tmp_path):
+    fm = load_forecasts_metadata(write_yaml(tmp_path / "fm.yml", v21_forecasts_metadata()))
+    nvda = fm.metrics_for("nvda")
+    assert nvda.arima.directional_accuracy is None
+    assert nvda.skill is None
+    assert nvda.arima.rmse is None  # key absent
+    assert nvda.evaluation_start_date is None
+    assert fm.metrics_for("QQQ") is None
+
+
+def test_forecasts_metadata_rejects_wrong_units(tmp_path):
+    document = v21_forecasts_metadata()
+    document["units"]["mape"] = "fraction"
+    path = write_yaml(tmp_path / "fm.yml", document)
+    with pytest.raises(DataLoadError, match="mape"):
+        load_forecasts_metadata(path)
+
+
+def test_forecasts_metadata_requires_ticker_metrics(tmp_path):
+    document = v21_forecasts_metadata()
+    del document["ticker_metrics"]
+    path = write_yaml(tmp_path / "fm.yml", document)
+    with pytest.raises(DataLoadError, match="ticker_metrics"):
+        load_forecasts_metadata(path)
+
+
+def test_forecasts_metadata_non_numeric_metric(tmp_path):
+    document = v21_forecasts_metadata()
+    document["ticker_metrics"]["gld"]["arima"]["rmse"] = "big"
+    path = write_yaml(tmp_path / "fm.yml", document)
+    with pytest.raises(DataLoadError, match="ticker_metrics.gld.arima.rmse"):
+        load_forecasts_metadata(path)
+
+
+def test_forecasts_metadata_missing_file(tmp_path):
+    with pytest.raises(DataLoadError, match="not available"):
+        load_forecasts_metadata(str(tmp_path / "missing.yml"))
+
+
+def test_folder_date_warnings_forecasts_metadata(tmp_path):
+    forecasts = load_forecasts(write_csv(tmp_path / "f.csv", FORECASTS_CSV))
+    fm = load_forecasts_metadata(write_yaml(tmp_path / "fm.yml", v21_forecasts_metadata()))
+    # Folder 2026-10-08: actuals through 10-08, training window ends 10-08,
+    # and the live forecast is for 10-09 in both files.
+    assert folder_date_warnings("2026-10-08", None, forecasts, fm) == []
+
+    document = v21_forecasts_metadata()
+    document["forecast_window"]["forecast_date"] = "2026-10-10"
+    document["forecast_window"]["training_window_end_date"] = "2026-10-07"
+    other = load_forecasts_metadata(write_yaml(tmp_path / "fm2.yml", document))
+    warnings = folder_date_warnings("2026-10-08", None, forecasts, other)
+    assert len(warnings) == 2
+    assert all("all_forecasts_metadata.yml" in warning for warning in warnings)
