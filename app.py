@@ -712,11 +712,11 @@ class FSFinance:
         as_of = last_actual_date(forecasts)
         as_of_text = as_of.date() if as_of is not None else "no actual prices yet"
         lines = [
-            "## One-day-ahead ARIMA forecasts",
-            "Each ARIMA point forecasts that day's adjusted close (US $) using only "
-            "earlier prices, from a model refit every day on a short sliding window "
-            "of recent prices. Days with an actual price form the backtest; the "
-            "final day, which has no actual price yet, is the live forecast.",
+            "## Walk-forward ARIMA & naive forecasting (out-of-sample evaluation)",
+            "Each point represents a one-day-ahead forecast of adjusted closing price (US $). Models are refit at "
+            "each trading day using a rolling window of historical log returns. Training and model selection use "
+            "only data available before the forecast date, preventing temporal leakage. Historical predictions are  "
+            "evaluated against subsequently observed prices; the final point represents the next trading day's forecast. ",
             f"**Data as of:** {as_of_text}",
             "### Select a ticker to view the model:",
         ]
