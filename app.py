@@ -44,10 +44,12 @@ BUCKET_NAME_ENV = "FSF_FRONT_END_BUCKET_NAME"
 PORTFOLIO_FOLDER_ENV = "FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER"
 TIME_SERIES_FOLDER_ENV = "FSF_FRONT_END_TIME_SERIES_FOLDER"
 
+# The contract's disclaimer, verbatim. Shown exactly once, at the bottom of
+# the page; do not repeat it in captions, tooltips, or metric descriptions.
 DISCLAIMER_MD = (
-    "**Not investment advice.** This is a hobby data science project. Every "
-    "value shown is a backtest or model output computed from historical prices, "
-    "and none of it predicts future results or recommends any investment."
+    "**Not investment advice.** Every value shown is a backtest or model output "
+    "computed from historical prices, and none of it predicts future results or "
+    "recommends any investment."
 )
 FORECASTS_METADATA_UNPUBLISHED = (
     "Accuracy metrics are not available for this date. The backend publishes "
@@ -898,8 +900,7 @@ class FSFinance:
             "is in percent and can be compared across tickers. Directional accuracy "
             "is the share of days on which ARIMA predicted the direction of the move "
             "correctly; the naive forecast predicts no move, so it has none. "
-            f"{days} days is a small sample, so treat these as indicative. "
-            "Not investment advice."
+            f"{days} days is a small sample, so treat these as indicative."
         )
 
     def timeseries_intro_markdown(self, forecasts, forecasts_metadata):
@@ -969,7 +970,6 @@ class FSFinance:
                 "A model adds value only if its errors are smaller than the naive "
                 "baseline's.",
             ]
-        lines.append("These are modeled values for illustration, not investment advice.")
         return os.linesep.join(lines)
 
     def run(self):
