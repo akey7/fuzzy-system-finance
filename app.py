@@ -59,6 +59,9 @@ FORECASTS_METADATA_UNPUBLISHED = (
 ACTUAL_COLOR = "#0072B2"
 ARIMA_COLOR = "#D55E00"
 NAIVE_COLOR = "#999999"
+# Height of the time series plot in pixels (about twice Gradio's default,
+# which was too short once the angled date labels took their space).
+TIMESERIES_PLOT_HEIGHT = 480
 ACTUAL_TOOLTIP = "Actual adjusted close"
 NAIVE_TOOLTIP = "Naive: the most recent observed close"
 
@@ -583,6 +586,7 @@ class FSFinance:
             color_map=color_map,
             tooltip=["Series", "Model"],
             y_lim=[min_value, max_value],
+            height=TIMESERIES_PLOT_HEIGHT,
         )
         return chart
 
@@ -1014,8 +1018,9 @@ class FSFinance:
         """
         # Make the accuracy table fill its half of the metrics panel,
         # highlight the live forecast with a light yellow background (a
-        # muted dark yellow in dark mode, where text is light), and make the
-        # methods accordion's label bold (its size stays the default).
+        # muted dark yellow in dark mode, where text is light) that stretches
+        # to the bottom of the plot, and make the methods accordion's label
+        # bold (its size stays the default).
         css = """
         .metrics-table table { width: 100% !important; }
         .live-forecast {
@@ -1024,6 +1029,8 @@ class FSFinance:
             border-radius: 8px;
         }
         .dark .live-forecast { background: #4A4220 !important; }
+        /* Stretch the live forecast box to the bottom of the plot beside it. */
+        .live-forecast { flex-grow: 1 !important; }
         .methods-accordion .label-wrap > span:first-child {
             font-weight: 700 !important;
         }
@@ -1050,7 +1057,9 @@ class FSFinance:
             # ARIMA-vs-naive summary followed by how to read the metrics
             # (right half); then the full-width explanation of the forecasts
             # and a horizontal rule.
-            with gr.Row():
+            # equal_height lets the left column match the plot's height, so the
+            # live forecast box (flex-grow in the CSS) reaches its bottom.
+            with gr.Row(equal_height=True):
                 with gr.Column(scale=1):
                     ticker_dropdown = gr.Dropdown(
                         choices=[],
