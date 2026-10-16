@@ -38,7 +38,6 @@ from data_loading import (
 )
 
 INPUT_FOLDER = "input"
-MARKET_TIMEZONE = "America/New_York"
 # One bucket (DigitalOcean Space) holds two top-level folders (see the contract).
 BUCKET_NAME_ENV = "FSF_FRONT_END_BUCKET_NAME"
 PORTFOLIO_FOLDER_ENV = "FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER"
@@ -487,8 +486,8 @@ class FSFinance:
         and ARIMA forecasts after a missing close (contract v20), where the
         line joins across the gap. A "Model" column describes each point
         for the tooltip, including each ARIMA forecast's own (p, d, q).
-        Dates are placed at 16:00 US Eastern (market close) so they display
-        on the correct day.
+        Dates are "YYYY-MM-DD" strings with no time of day, because every
+        price is a market close.
 
         Parameters
         ----------
@@ -527,12 +526,10 @@ class FSFinance:
         )
         select_df["Series"] = select_df["Series"].apply(self.friendly_col_name)
         select_df["Adjusted Close ($)"] = select_df["Adjusted Close ($)"].round(2)
-        # Add the offset in NumPy with an explicit unit; pandas 2.x with
-        # NumPy >= 2.5 warns about a unitless timedelta for Series + Timedelta.
-        market_close = select_df["pred_date"].to_numpy() + np.timedelta64(16, "h")
-        select_df["pred_date"] = pd.Series(
-            market_close, index=select_df.index
-        ).dt.tz_localize(MARKET_TIMEZONE)
+        # Dates as "YYYY-MM-DD" text: every value is a daily close, and
+        # Gradio 5.22 shows time-based x values in tooltips with a time of
+        # day in the viewer's time zone, which would be misleading.
+        select_df["pred_date"] = select_df["pred_date"].dt.strftime("%Y-%m-%d")
         select_df.rename(columns={"pred_date": "Date"}, inplace=True)
         return select_df
 
@@ -576,6 +573,11 @@ class FSFinance:
             value=long_df,
             title=f"{ticker}: actual close vs. one-day-ahead forecasts",
             x="Date",
+            x_title="Date (market close)",
+            # Dates are text categories; ISO dates sort chronologically, and
+            # each trading day gets equal spacing (no weekend gaps).
+            sort="x",
+            x_label_angle=-45,
             y="Adjusted Close ($)",
             color="Series",
             color_map=color_map,
