@@ -936,7 +936,7 @@ class FSFinance:
         """
         as_of = last_actual_date(forecasts)
         as_of_text = as_of.date() if as_of is not None else "no actual prices yet"
-        return f"**Data as of:** {as_of_text}"
+        return f"## Data as of: {as_of_text}"
 
     def timeseries_intro_markdown(self, forecasts, forecasts_metadata):
         """
