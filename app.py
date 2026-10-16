@@ -13,11 +13,16 @@ from data_loading import (
     ARIMA_SUFFIX,
     CONTRACT_VERSION,
     FORECASTS_KEY,
+    FORECASTS_METADATA_KEY,
+    NAIVE_SUFFIX,
     OPTIMIZATION_METADATA_KEY,
+    ORDER_SUFFIXES,
     PLOT_DATA_KEY,
     DataLoadError,
+    ForecastsMetadata,
     OptimizationMetadata,
     XYData,
+    arima_orders,
     available_dates,
     clean_weights,
     folder_date_warnings,
@@ -25,31 +30,48 @@ from data_loading import (
     last_actual_date,
     live_forecast_date,
     load_forecasts,
+    load_forecasts_metadata,
     load_optimization_metadata,
     load_plot_data,
+    naive_column,
     optimization_files_agree,
 )
 
 INPUT_FOLDER = "input"
-MARKET_TIMEZONE = "America/New_York"
 # One bucket (DigitalOcean Space) holds two top-level folders (see the contract).
 BUCKET_NAME_ENV = "FSF_FRONT_END_BUCKET_NAME"
 PORTFOLIO_FOLDER_ENV = "FSF_FRONT_END_PORTFOLIO_OPTIMIZATION_FOLDER"
 TIME_SERIES_FOLDER_ENV = "FSF_FRONT_END_TIME_SERIES_FOLDER"
 
+# The contract's disclaimer, verbatim. Shown exactly once, at the bottom of
+# the page; do not repeat it in captions, tooltips, or metric descriptions.
 DISCLAIMER_MD = (
-    "**Not investment advice.** This is a hobby data science project. Every "
-    "value shown is a backtest or model output computed from historical prices, "
-    "and none of it predicts future results or recommends any investment."
+    "**Not investment advice.** Every value shown is a backtest or model output "
+    "computed from historical prices, and none of it predicts future results or "
+    "recommends any investment."
 )
+FORECASTS_METADATA_UNPUBLISHED = (
+    "Accuracy metrics are not available for this date. The backend publishes "
+    "them from interface contract v21 on."
+)
+
+# Time series plot: one fixed color per series (Okabe-Ito, colorblind-safe).
+ACTUAL_COLOR = "#0072B2"
+ARIMA_COLOR = "#D55E00"
+NAIVE_COLOR = "#999999"
+ACTUAL_TOOLTIP = "Actual adjusted close"
+NAIVE_TOOLTIP = "Naive: the most recent observed close"
 
 
 @dataclass(frozen=True)
 class DateData:
     """
-    The three backend files from one date folder. Each file is either
-    loaded or replaced by an error message. All files come from the same
-    folder, so dates are never mixed.
+    The backend files from one date folder. Each file is either loaded or
+    replaced by an error message. All files come from the same folder, so
+    dates are never mixed.
+
+    all_forecasts_metadata.yml is optional (contract v21+):
+    forecasts_metadata_published says whether the folder listing showed it.
     """
 
     date: str
@@ -59,16 +81,94 @@ class DateData:
     plot_data_error: str | None
     forecasts: pd.DataFrame | None
     forecasts_error: str | None
+    forecasts_metadata: ForecastsMetadata | None
+    forecasts_metadata_error: str | None
+    forecasts_metadata_published: bool
 
     def complete(self):
         """
-        Return True if all three files loaded without errors.
+        Return True if every file the date folder has loaded without
+        errors. A date without the optional forecasts metadata can still be
+        complete.
         """
         return (
             self.metadata is not None
             and self.plot_data is not None
             and self.forecasts is not None
+            and (self.forecasts_metadata is not None or not self.forecasts_metadata_published)
         )
+
+
+def arima_model_label(p, d, q):
+    """
+    Describe the ARIMA model behind one forecast, for the plot tooltip.
+
+    Uses the contract's suggested wording: orders on log prices, with the
+    equivalent model on daily log returns.
+
+    Parameters
+    ----------
+    p, d, q : int | pandas.NA
+        The forecast's model orders; missing when not published.
+
+    Returns
+    -------
+    str
+        The model description.
+    """
+    if pd.isna(p) or pd.isna(q):
+        return "ARIMA forecast (model orders not published for this date)"
+    if pd.isna(d):
+        return f"ARIMA({p}, 0, {q}) on daily log returns"
+    return (
+        f"ARIMA({p}, {d}, {q}) on log prices "
+        f"(fit as ARIMA({p}, 0, {q}) on daily log returns)"
+    )
+
+
+def arima_short_label(p, d, q):
+    """
+    Short name of the ARIMA model behind one forecast, e.g. "ARIMA(1, 1, 0)".
+
+    Parameters
+    ----------
+    p, d, q : int | pandas.NA
+        The forecast's model orders; missing when not published.
+
+    Returns
+    -------
+    str
+        "ARIMA(p, d, q)" on log prices, "ARIMA(p, 0, q) on log returns" if
+        `d` is not published, or "ARIMA" if no orders are published.
+    """
+    if pd.isna(p) or pd.isna(q):
+        return "ARIMA"
+    if pd.isna(d):
+        return f"ARIMA({p}, 0, {q}) on log returns"
+    return f"ARIMA({p}, {d}, {q})"
+
+
+def format_value(value, spec, suffix=""):
+    """
+    Format a metric for display, showing "n/a" for missing values.
+
+    Parameters
+    ----------
+    value : float | int | None
+        The value.
+
+    spec : str
+        Format specification, e.g. ".2f".
+
+    suffix : str
+        Text appended after the number, e.g. "%".
+
+    Returns
+    -------
+    str
+        The formatted value.
+    """
+    return "n/a" if value is None else f"{value:{spec}}{suffix}"
 
 
 def folder_name(env_var):
@@ -136,13 +236,14 @@ class FSFinance:
         """
         List the dates that are complete in both top-level folders, with
         the ETags of their marker files (`optimization_metadata.yml` and
-        `all_forecasts.csv`). Keys whose segment after the folder is not a
-        valid date are ignored.
+        `all_forecasts.csv`) and of the optional `all_forecasts_metadata.yml`.
+        Keys whose segment after the folder is not a valid date are ignored.
 
         Returns
         -------
-        tuple[dict[str, tuple[str, str]], str | None]
-            Available date -> (metadata ETag, forecasts ETag), newest
+        tuple[dict[str, tuple[str, str, str | None]], str | None]
+            Available date -> (metadata ETag, forecasts ETag, forecasts
+            metadata ETag or None if the date has no such file), newest
             first, and an error message (None if dates were found).
         """
         if self.downloader is None:
@@ -168,6 +269,7 @@ class FSFinance:
             date: (
                 portfolio_keys[f"{date}/{OPTIMIZATION_METADATA_KEY}"],
                 forecast_keys[f"{date}/{FORECASTS_KEY}"],
+                forecast_keys.get(f"{date}/{FORECASTS_METADATA_KEY}"),
             )
             for date in available_dates(portfolio_keys, forecast_keys)
         }
@@ -212,14 +314,19 @@ class FSFinance:
             print(f"Could not load {object_name}: {error}")
             return None, str(error)
 
-    def load_date(self, date):
+    def load_date(self, date, forecasts_metadata_published):
         """
-        Download and load all three files from one date folder.
+        Download and load the files from one date folder. The optional
+        all_forecasts_metadata.yml is downloaded only if the folder listing
+        showed it.
 
         Parameters
         ----------
         date : str
             Date folder (`YYYY-MM-DD`).
+
+        forecasts_metadata_published : bool
+            True if the date folder has all_forecasts_metadata.yml.
 
         Returns
         -------
@@ -239,6 +346,16 @@ class FSFinance:
         forecasts, forecasts_error = self.fetch_and_load(
             TIME_SERIES_FOLDER_ENV, date, FORECASTS_KEY, load_forecasts
         )
+        if forecasts_metadata_published:
+            forecasts_metadata, forecasts_metadata_error = self.fetch_and_load(
+                TIME_SERIES_FOLDER_ENV,
+                date,
+                FORECASTS_METADATA_KEY,
+                load_forecasts_metadata,
+            )
+        else:
+            forecasts_metadata = None
+            forecasts_metadata_error = FORECASTS_METADATA_UNPUBLISHED
         return DateData(
             date=date,
             metadata=metadata,
@@ -247,6 +364,9 @@ class FSFinance:
             plot_data_error=plot_data_error,
             forecasts=forecasts,
             forecasts_error=forecasts_error,
+            forecasts_metadata=forecasts_metadata,
+            forecasts_metadata_error=forecasts_metadata_error,
+            forecasts_metadata_published=forecasts_metadata_published,
         )
 
     def date_data(self, date, marker_etags):
@@ -254,18 +374,20 @@ class FSFinance:
         Return the data for a date, from the cache when possible.
 
         A cached date is reused only while the ETags of its marker files
-        are unchanged, so a same-day backend re-run is downloaded again.
-        Only complete dates are cached, so a failed download is retried on
-        the next request. The lock makes concurrent requests for a date
-        download it once and never read a half-written local file.
+        (and of the optional forecasts metadata) are unchanged, so a
+        same-day backend re-run is downloaded again. Only complete dates are
+        cached, so a failed download is retried on the next request. The
+        lock makes concurrent requests for a date download it once and
+        never read a half-written local file.
 
         Parameters
         ----------
         date : str
             Date folder (`YYYY-MM-DD`).
 
-        marker_etags : tuple[str, str]
-            ETags of the date's metadata and forecasts files.
+        marker_etags : tuple[str, str, str | None]
+            ETags of the date's optimization metadata, forecasts, and
+            forecasts metadata (None if the date has none).
 
         Returns
         -------
@@ -276,7 +398,9 @@ class FSFinance:
             cached = self._cache.get(date)
             if cached is not None and cached[0] == tuple(marker_etags):
                 return cached[1]
-            data = self.load_date(date)
+            data = self.load_date(
+                date, forecasts_metadata_published=marker_etags[2] is not None
+            )
             if data.complete():
                 self._cache[date] = (tuple(marker_etags), data)
             return data
@@ -292,7 +416,7 @@ class FSFinance:
         date : str | None
             Value of the date dropdown.
 
-        markers : dict[str, tuple[str, str]]
+        markers : dict[str, tuple[str, str, str | None]]
             Available dates and marker ETags from list_dates().
 
         Returns
@@ -345,17 +469,25 @@ class FSFinance:
         """
         if col_name.endswith(ARIMA_SUFFIX):
             return f"{col_name.removesuffix(ARIMA_SUFFIX)} (ARIMA forecast)"
+        elif col_name.endswith(NAIVE_SUFFIX):
+            return f"{col_name.removesuffix(NAIVE_SUFFIX)} (Naive forecast)"
         else:
             return f"{col_name} (Actual)"
 
     def long_df(self, forecasts, ticker):
         """
-        Isolate predicted and actual adjusted close prices of
-        a ticker and pivots the wide dataframe with the predicted
-        and actual them into a long format suitable for
-        visualization with gr.LinePlot(). Empty actual prices (the live
-        forecast row) are dropped. Dates are placed at 16:00 US Eastern
-        (market close) so they display on the correct day.
+        Isolate actual, ARIMA-forecast, and naive-forecast adjusted close
+        prices of a ticker and pivot them from the wide dataframe into a
+        long format suitable for visualization with gr.LinePlot(). The
+        naive series is included only when the date folder has it
+        (contract v19+).
+
+        Empty values are dropped: actual prices on the live forecast row,
+        and ARIMA forecasts after a missing close (contract v20), where the
+        line joins across the gap. A "Model" column describes each point
+        for the tooltip, including each ARIMA forecast's own (p, d, q).
+        Dates are "YYYY-MM-DD" strings with no time of day, because every
+        price is a market close.
 
         Parameters
         ----------
@@ -368,33 +500,46 @@ class FSFinance:
         Returns
         -------
         pd.DataFrame
-            DataFrame for plotting with gr.LinePlot().
+            DataFrame for plotting with gr.LinePlot(), with columns
+            "Date", "Series", "Adjusted Close ($)", and "Model".
         """
-        select_df = forecasts[[ticker, f"{ticker}{ARIMA_SUFFIX}"]].reset_index()
+        arima_col = f"{ticker}{ARIMA_SUFFIX}"
+        naive_col = naive_column(forecasts, ticker)
+        value_columns = [ticker, arima_col] + ([naive_col] if naive_col else [])
+        orders = arima_orders(forecasts, ticker)
+        arima_labels = pd.Series(
+            [arima_model_label(p, d, q) for p, d, q in orders.itertuples(index=False)],
+            index=orders.index,
+        )
+        select_df = forecasts[value_columns].reset_index()
         select_df = select_df.melt(
             id_vars="pred_date",
-            value_vars=[ticker, f"{ticker}{ARIMA_SUFFIX}"],
-            var_name="Ticker",
+            value_vars=value_columns,
+            var_name="Series",
             value_name="Adjusted Close ($)",
         )
         select_df = select_df.dropna(subset=["Adjusted Close ($)"])
-        select_df["Ticker"] = select_df["Ticker"].apply(self.friendly_col_name)
+        select_df["Model"] = np.where(
+            select_df["Series"] == arima_col,
+            select_df["pred_date"].map(arima_labels),
+            np.where(select_df["Series"] == naive_col, NAIVE_TOOLTIP, ACTUAL_TOOLTIP),
+        )
+        select_df["Series"] = select_df["Series"].apply(self.friendly_col_name)
         select_df["Adjusted Close ($)"] = select_df["Adjusted Close ($)"].round(2)
-        # Add the offset in NumPy with an explicit unit; pandas 2.x with
-        # NumPy >= 2.5 warns about a unitless timedelta for Series + Timedelta.
-        market_close = select_df["pred_date"].to_numpy() + np.timedelta64(16, "h")
-        select_df["pred_date"] = pd.Series(
-            market_close, index=select_df.index
-        ).dt.tz_localize(MARKET_TIMEZONE)
+        # Dates as "YYYY-MM-DD" text: every value is a daily close, and
+        # Gradio 5.22 shows time-based x values in tooltips with a time of
+        # day in the viewer's time zone, which would be misleading.
+        select_df["pred_date"] = select_df["pred_date"].dt.strftime("%Y-%m-%d")
         select_df.rename(columns={"pred_date": "Date"}, inplace=True)
         return select_df
 
     def timeseries_plot(self, forecasts, ticker):
         """
-        Create a gr.LinePlot() with actual and predicted prices for
-        a ticker. The app calls this inside a gr.render() function so the
-        plot is rebuilt from scratch whenever the selected date or ticker
-        changes.
+        Create a gr.LinePlot() with actual prices and ARIMA and naive
+        forecasts for a ticker. Each series has a fixed color, and hovering
+        a point shows the model behind it. The app calls this inside a
+        gr.render() function so the plot is rebuilt from scratch whenever
+        the selected date or ticker changes.
 
         Parameters
         ----------
@@ -412,12 +557,31 @@ class FSFinance:
         long_df = self.long_df(forecasts, ticker)
         min_value = float(0.9 * long_df["Adjusted Close ($)"].min())
         max_value = float(1.1 * long_df["Adjusted Close ($)"].max())
+        colors = {
+            self.friendly_col_name(ticker): ACTUAL_COLOR,
+            self.friendly_col_name(f"{ticker}{ARIMA_SUFFIX}"): ARIMA_COLOR,
+            self.friendly_col_name(f"{ticker}{NAIVE_SUFFIX}"): NAIVE_COLOR,
+        }
+        # Only series present in the data, so the legend never lists a
+        # series the date folder does not have (e.g. naive before v19).
+        color_map = {
+            series: color
+            for series, color in colors.items()
+            if series in set(long_df["Series"])
+        }
         chart = gr.LinePlot(
             value=long_df,
-            title=f"{ticker}: actual vs. one-day-ahead ARIMA forecast",
+            title=f"{ticker}: actual close vs. one-day-ahead forecasts",
             x="Date",
+            x_title="Date (market close)",
+            # Dates are text categories; ISO dates sort chronologically, and
+            # each trading day gets equal spacing (no weekend gaps).
+            sort="x",
+            x_label_angle=-45,
             y="Adjusted Close ($)",
-            color="Ticker",
+            color="Series",
+            color_map=color_map,
+            tooltip=["Series", "Model"],
             y_lim=[min_value, max_value],
         )
         return chart
@@ -531,7 +695,9 @@ class FSFinance:
         str
             Warning markdown, or an empty string if everything agrees.
         """
-        warnings = folder_date_warnings(data.date, data.metadata, data.forecasts)
+        warnings = folder_date_warnings(
+            data.date, data.metadata, data.forecasts, data.forecasts_metadata
+        )
         if not warnings:
             return ""
         lines = [f"**Warning:** the files for {data.date} may describe another date."]
@@ -608,55 +774,10 @@ class FSFinance:
         ax.legend(fontsize="small")
         return fig
 
-    def arima_backtest_df(self, forecasts, ticker):
+    def live_forecast_markdown(self, forecasts, ticker):
         """
-        Return the backtest rows for a ticker: rows that have both an
-        actual price and an ARIMA forecast.
-
-        Parameters
-        ----------
-        forecasts : pd.DataFrame
-            Forecasts from data_loading.load_forecasts().
-
-        ticker : str
-            The ticker.
-
-        Returns
-        -------
-        pd.DataFrame
-            Actual and forecast columns for the ticker on backtest rows.
-        """
-        columns = [ticker, f"{ticker}{ARIMA_SUFFIX}"]
-        return forecasts[columns].dropna()
-
-    def calc_rmse(self, forecasts, ticker):
-        """
-        Calculate the RMSE of the walk-forward ARIMA model of an asset
-        over its backtest rows, in US dollars.
-
-        Parameters
-        ----------
-        forecasts : pd.DataFrame
-            Forecasts from data_loading.load_forecasts().
-
-        ticker : str
-            The ticker.
-
-        Returns
-        -------
-        float
-            RMSE of ARIMA model, or NaN if there are no backtest rows.
-        """
-        backtest = self.arima_backtest_df(forecasts, ticker)
-        if backtest.empty:
-            return float("nan")
-        errors = backtest[ticker] - backtest[f"{ticker}{ARIMA_SUFFIX}"]
-        return float(np.sqrt(np.mean(np.square(errors))))
-
-    def arima_rmse_message(self, forecasts, ticker):
-        """
-        Turn the raw RMSE value and the live forecast into a markdown
-        string for display on the UI.
+        Generate markdown for a ticker's live (next trading day) forecast:
+        the ARIMA forecast with its model orders, and the naive forecast.
 
         Parameters
         ----------
@@ -669,35 +790,135 @@ class FSFinance:
         Returns
         -------
         str
-            Markdown string for UI.
+            Markdown string for UI, or an empty string if the forecasts
+            have no live row.
         """
-        backtest = self.arima_backtest_df(forecasts, ticker)
-        if backtest.empty:
-            lines = ["### Backtest RMSE", "No backtest rows with actual prices yet."]
-        else:
-            first = backtest.index.min().date()
-            last = backtest.index.max().date()
-            lines = [
-                "### Backtest RMSE",
-                f"## ${self.calc_rmse(forecasts, ticker):.2f}",
-                f"Root mean squared error of the one-day-ahead forecast against the "
-                f"actual adjusted close, in US dollars, over {len(backtest)} trading "
-                f"days ({first} to {last}).",
-            ]
         live_date = live_forecast_date(forecasts)
-        if live_date is not None:
-            live_value = forecasts.loc[live_date, f"{ticker}{ARIMA_SUFFIX}"]
-            if pd.notna(live_value):
-                lines += [
-                    "### Live forecast",
-                    f"**{live_date.date()}:** ${live_value:.2f} adjusted close",
-                ]
+        if live_date is None:
+            return ""
+        lines = [f"### Live forecast for {live_date.date()}", "Adjusted close, US $:"]
+        arima_value = forecasts.loc[live_date, f"{ticker}{ARIMA_SUFFIX}"]
+        if pd.notna(arima_value):
+            p, d, q = arima_orders(forecasts, ticker).loc[live_date]
+            lines.append(f"- **{arima_short_label(p, d, q)}:** ${arima_value:.2f}")
+        else:
+            lines.append("- **ARIMA:** no forecast (the previous close is missing)")
+        naive_col = naive_column(forecasts, ticker)
+        if naive_col is not None and pd.notna(forecasts.loc[live_date, naive_col]):
+            lines.append(f"- **Naive:** ${forecasts.loc[live_date, naive_col]:.2f}")
         return os.linesep.join(lines)
 
-    def timeseries_intro_markdown(self, forecasts):
+    def forecast_metrics_markdown(self, forecasts_metadata, unavailable_text, ticker):
         """
-        Generate the explanatory markdown at the top of the Timeseries
-        Analysis section.
+        Generate markdown of a ticker's forecast accuracy from
+        all_forecasts_metadata.yml, in two parts for the two halves of the
+        metrics panel: a table of RMSE, MAE, and MAPE for the ARIMA and
+        naive forecasts and ARIMA directional accuracy, and a summary of
+        relative MAE, skill, what they mean, and how to read the metrics
+        (metrics_note_markdown). Nothing is computed here;
+        the backend publishes every metric so all surfaces report the same
+        numbers.
+
+        Parameters
+        ----------
+        forecasts_metadata : ForecastsMetadata | None
+            Loaded forecasts metadata, if available.
+
+        unavailable_text : str | None
+            Explanation shown when forecasts_metadata is None.
+
+        ticker : str
+            The ticker.
+
+        Returns
+        -------
+        tuple[str, str]
+            Markdown for the table half and for the summary half (empty
+            when there are no metrics).
+        """
+        lines = ["### Forecast accuracy"]
+        if forecasts_metadata is None:
+            return os.linesep.join(lines + [unavailable_text or ""]), ""
+        m = forecasts_metadata.metrics_for(ticker)
+        if m is None:
+            message = f"No accuracy metrics were published for {ticker}."
+            return os.linesep.join(lines + [message]), ""
+        if m.arima.directional_accuracy is None:
+            direction = "n/a"
+        else:
+            direction = (
+                f"{m.arima.directional_accuracy:.0%} "
+                f"({format_value(m.arima.n_directional, 'd')} days)"
+            )
+        if m.skill is None:
+            verdict = "Not enough scored days to compare ARIMA with the naive forecast."
+        elif m.skill > 0:
+            verdict = "ARIMA's average error was **smaller** than the naive forecast's."
+        elif m.skill < 0:
+            verdict = "ARIMA's average error was **larger** than the naive forecast's."
+        else:
+            verdict = "ARIMA's average error was the **same** as the naive forecast's."
+        lines += [
+            f"Scored on {format_value(m.n_evaluated, 'd')} of "
+            f"{forecasts_metadata.target_trading_days} trading days "
+            f"({m.evaluation_start_date or 'n/a'} to {m.evaluation_end_date or 'n/a'}).",
+            "",
+            "| | ARIMA | Naive |",
+            "| --- | ---: | ---: |",
+            f"| RMSE ($/share) | {format_value(m.arima.rmse, '.2f')} "
+            f"| {format_value(m.naive.rmse, '.2f')} |",
+            f"| MAE ($/share) | {format_value(m.arima.mae, '.2f')} "
+            f"| {format_value(m.naive.mae, '.2f')} |",
+            f"| MAPE (%) | {format_value(m.arima.mape, '.2f')} "
+            f"| {format_value(m.naive.mape, '.2f')} |",
+            f"| Directional accuracy | {direction} | — |",
+        ]
+        summary = [
+            "### ARIMA vs. naive",
+            f"**Relative MAE (ARIMA ÷ naive):** {format_value(m.relative_mae, '.3f')}  ",
+            f"**Skill (1 − relative MAE):** {format_value(m.skill, '.3f')}",
+            "",
+            verdict,
+            "",
+            self.metrics_note_markdown(forecasts_metadata),
+        ]
+        return os.linesep.join(lines), os.linesep.join(summary)
+
+    def metrics_note_markdown(self, forecasts_metadata):
+        """
+        Generate the contract's suggested wording for interpreting the
+        forecast accuracy metrics, shown at the end of the summary half of
+        the metrics panel.
+
+        Parameters
+        ----------
+        forecasts_metadata : ForecastsMetadata | None
+            Loaded forecasts metadata, if available.
+
+        Returns
+        -------
+        str
+            Markdown string for UI, or an empty string if no metrics are
+            shown for this date.
+        """
+        if forecasts_metadata is None:
+            return ""
+        days = forecasts_metadata.target_trading_days
+        return (
+            "**Reading the accuracy metrics.** Accuracy over the last "
+            f"{days} trading days, comparing each forecast with the actual close. "
+            "Relative MAE below 1 (skill above 0) means ARIMA's errors were smaller "
+            "than the naive forecast's. RMSE and MAE are in dollars per share; MAPE "
+            "is in percent and can be compared across tickers. Directional accuracy "
+            "is the share of days on which ARIMA predicted the direction of the move "
+            "correctly; the naive forecast predicts no move, so it has none. "
+            f"{days} days is a small sample, so treat these as indicative."
+        )
+
+    def timeseries_as_of_markdown(self, forecasts):
+        """
+        Generate the "Data as of" line shown directly below the Timeseries
+        Analysis heading: the last date with an actual price.
 
         Parameters
         ----------
@@ -711,15 +932,72 @@ class FSFinance:
         """
         as_of = last_actual_date(forecasts)
         as_of_text = as_of.date() if as_of is not None else "no actual prices yet"
+        return f"**Data as of:** {as_of_text}"
+
+    def timeseries_intro_markdown(self, forecasts, forecasts_metadata):
+        """
+        Generate the explanatory markdown of the Timeseries Analysis
+        section, shown below the metrics panel inside a collapsed accordion
+        (whose label serves as the heading), including the contract's suggested wording on
+        how the forecasts are made, why d = 1, and the naive baseline.
+        Parts about model orders and the naive forecast appear only when
+        the date folder has those columns.
+
+        Parameters
+        ----------
+        forecasts : pd.DataFrame
+            Forecasts from data_loading.load_forecasts().
+
+        forecasts_metadata : ForecastsMetadata | None
+            Loaded forecasts metadata, if available, for the training
+            window length.
+
+        Returns
+        -------
+        str
+            String of markdown
+        """
+        has_orders = any(
+            str(column).endswith(ORDER_SUFFIXES) for column in forecasts.columns
+        )
+        has_naive = any(
+            str(column).endswith(NAIVE_SUFFIX) for column in forecasts.columns
+        )
+        if forecasts_metadata is not None:
+            window = f"the previous {forecasts_metadata.training_window_returns} trading days"
+        else:
+            window = "a short window of recent trading days"
+        how = (
+            f"For every day and ticker, an ARIMA model is refit on {window}, and its "
+            "orders p and q are chosen again, so they can change from one day to the "
+            "next. If a close is missing from the data, the next day's ARIMA "
+            "forecast is skipped and the line joins across the gap."
+        )
+        if has_orders:
+            how += " Hover over a forecast to see the model behind it."
         lines = [
-            "## One-day-ahead ARIMA forecasts",
-            "Each ARIMA point forecasts that day's adjusted close (US $) using only "
-            "earlier prices, from a model refit every day on a short sliding window "
-            "of recent prices. Days with an actual price form the backtest; the "
-            "final day, which has no actual price yet, is the live forecast.",
-            f"**Data as of:** {as_of_text}",
-            "### Select a ticker to view the model:",
+            "Each point represents a one-day-ahead forecast of adjusted closing price (US $). Models are refit at "
+            "each trading day using a rolling window of historical log returns. Training and model selection use "
+            "only data available before the forecast date, preventing temporal leakage. Historical predictions are  "
+            "evaluated against subsequently observed prices; the final point represents the next trading day's forecast. ",
+            "### How these forecasts are made",
+            how,
         ]
+        if has_orders:
+            lines += [
+                "### Why d = 1",
+                "The model is fit to daily log returns as ARIMA(p, 0, q). Turning "
+                "prices into returns is one round of differencing, so the same model "
+                "on log prices is ARIMA(p, 1, q). The tooltip shows the log-price "
+                "version.",
+            ]
+        if has_naive:
+            lines += [
+                "### Naive forecast",
+                "Today's close = yesterday's close (the most recent observed close). "
+                "A model adds value only if its errors are smaller than the naive "
+                "baseline's.",
+            ]
         return os.linesep.join(lines)
 
     def run(self):
@@ -734,7 +1012,23 @@ class FSFinance:
         are rebuilt with gr.render() rather than updated in place, because
         updating the value of an existing gr.LinePlot left the chart empty.
         """
-        with gr.Blocks() as app:
+        # Make the accuracy table fill its half of the metrics panel,
+        # highlight the live forecast with a light yellow background (a
+        # muted dark yellow in dark mode, where text is light), and make the
+        # methods accordion's label bold (its size stays the default).
+        css = """
+        .metrics-table table { width: 100% !important; }
+        .live-forecast {
+            background: #FFF7D1 !important;
+            padding: 12px 16px !important;
+            border-radius: 8px;
+        }
+        .dark .live-forecast { background: #4A4220 !important; }
+        .methods-accordion .label-wrap > span:first-child {
+            font-weight: 700 !important;
+        }
+        """
+        with gr.Blocks(css=css) as app:
             # Available dates and marker ETags for this visitor's page load.
             marker_state = gr.State({})
             date_dropdown = gr.Dropdown(
@@ -750,17 +1044,23 @@ class FSFinance:
             # top, Portfolio Optimization below. Inner headings start at ##
             # so these # section headings stay the most prominent.
             gr.Markdown("# Timeseries Analysis")
+            timeseries_as_of_md = gr.Markdown("")
+            # The ticker and live forecast beside the plot; then a full-width
+            # gray panel with the accuracy table (left half) and the
+            # ARIMA-vs-naive summary followed by how to read the metrics
+            # (right half); then the full-width explanation of the forecasts
+            # and a horizontal rule.
             with gr.Row():
                 with gr.Column(scale=1):
-                    timeseries_intro_md = gr.Markdown("")
                     ticker_dropdown = gr.Dropdown(
                         choices=[],
                         value=None,
-                        label=None,
-                        show_label=False,
+                        label="Ticker",
                         visible=False,
                     )
-                    arima_rmse_md = gr.Markdown("", container=True)
+                    live_forecast_md = gr.Markdown(
+                        "", elem_classes=["live-forecast"], visible=False
+                    )
 
                 with gr.Column(scale=2):
 
@@ -774,6 +1074,24 @@ class FSFinance:
                             return
                         ticker = self.resolve_ticker(data.forecasts, ticker)
                         self.timeseries_plot(data.forecasts, ticker)
+
+            with gr.Row(variant="panel", equal_height=False):
+                with gr.Column(scale=1):
+                    metrics_md = gr.Markdown("", elem_classes=["metrics-table"])
+                with gr.Column(scale=1):
+                    metrics_summary_md = gr.Markdown("")
+
+            # The methods text is collapsed by default so it does not push the
+            # Portfolio Optimization section far down the page.
+            with gr.Accordion(
+                "Click to learn more about walk-forward ARIMA, naive "
+                "forecasting, and out-of-sample evaluation...",
+                open=False,
+                visible=False,
+                elem_classes=["methods-accordion"],
+            ) as methods_accordion:
+                timeseries_intro_md = gr.Markdown("")
+            gr.Markdown("---")
 
             gr.Markdown("# Portfolio Optimization")
 
@@ -831,14 +1149,18 @@ class FSFinance:
             def on_date_change(date, markers, ticker):
                 data = self.selected_data(date, markers)
                 hidden_tickers = gr.update(choices=[], value=None, visible=False)
+                hidden_methods = gr.update(visible=False)
                 if data is None:
-                    return "", hidden_tickers, ""
+                    return "", hidden_tickers, "", "", hidden_methods
                 warning_md = self.date_warning_markdown(data)
                 if data.forecasts is None:
+                    # Shown under the heading, not in the collapsed accordion.
                     return (
                         warning_md,
                         hidden_tickers,
                         f"**Forecasts unavailable.** {data.forecasts_error}",
+                        "",
+                        hidden_methods,
                     )
                 tickers = forecast_tickers(data.forecasts.columns)
                 return (
@@ -848,15 +1170,28 @@ class FSFinance:
                         value=self.resolve_ticker(data.forecasts, ticker),
                         visible=True,
                     ),
-                    self.timeseries_intro_markdown(data.forecasts),
+                    self.timeseries_as_of_markdown(data.forecasts),
+                    self.timeseries_intro_markdown(
+                        data.forecasts, data.forecasts_metadata
+                    ),
+                    gr.update(visible=True),
                 )
 
             def on_ticker_text(date, markers, ticker):
                 data = self.selected_data(date, markers)
                 if data is None or data.forecasts is None:
-                    return ""
+                    return gr.update(value="", visible=False), "", ""
                 ticker = self.resolve_ticker(data.forecasts, ticker)
-                return self.arima_rmse_message(data.forecasts, ticker)
+                table_md, summary_md = self.forecast_metrics_markdown(
+                    data.forecasts_metadata, data.forecasts_metadata_error, ticker
+                )
+                live_md = self.live_forecast_markdown(data.forecasts, ticker)
+                # Hidden when there is no live row, so no empty yellow box shows.
+                return (
+                    gr.update(value=live_md, visible=bool(live_md)),
+                    table_md,
+                    summary_md,
+                )
 
             app.load(
                 on_load,
@@ -865,13 +1200,19 @@ class FSFinance:
             date_dropdown.change(
                 on_date_change,
                 inputs=[date_dropdown, marker_state, ticker_dropdown],
-                outputs=[date_warning_md, ticker_dropdown, timeseries_intro_md],
+                outputs=[
+                    date_warning_md,
+                    ticker_dropdown,
+                    timeseries_as_of_md,
+                    timeseries_intro_md,
+                    methods_accordion,
+                ],
             )
             gr.on(
                 triggers=[date_dropdown.change, ticker_dropdown.change],
                 fn=on_ticker_text,
                 inputs=[date_dropdown, marker_state, ticker_dropdown],
-                outputs=[arima_rmse_md],
+                outputs=[live_forecast_md, metrics_md, metrics_summary_md],
             )
 
         app.launch()
