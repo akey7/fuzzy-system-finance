@@ -1034,7 +1034,7 @@ class FSFinance:
         /* Everything inside the box (heading, text, list) 50% larger. zoom
            scales font sizes and spacing together, and only the text's
            elements are targeted, so the box keeps its size. */
-        .prose.live-forecast > * { zoom: 2.0; }
+        .prose.live-forecast > * { zoom: 1.5; }
         .methods-accordion .label-wrap > span:first-child {
             font-weight: 700 !important;
         }
