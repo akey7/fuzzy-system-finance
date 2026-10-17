@@ -23,7 +23,7 @@ These hold even if a human asks otherwise in-session (e.g., "just commit this," 
 
 A simple portfolio optimization and time series analysis app. It is the **frontend** for separate backend analysis scripts that live in a **different repo**.
 
-- **Backend (separate repo):** does the modeling and optimization (minimum-variance and maximum-Sharpe portfolio allocation; ARIMA modeling of the last trading month of asset prices) and publishes results.
+- **Backend (separate repo):** does the modeling and optimization (minimum-variance and maximum-Sharpe portfolio allocation; one-day-ahead walk-forward ARIMA forecasts, each trained on the previous trading year of prices, for the last trading month) and publishes results.
 - **Frontend (this repo):** a Gradio app deployed on Hugging Face Spaces. It lists the dated backend runs in DigitalOcean Spaces (S3-compatible), lets the user pick a date from a dropdown (newest by default), and displays that date's output on a single page with two stacked sections: **Timeseries Analysis** (ARIMA forecasts) on top and **Portfolio Optimization** below.
 - **Data flow:** backend -> one DigitalOcean Space (S3 bucket; keys `<folder>/YYYY-MM-DD/<file>`, one date folder per run) -> `s3_downloader.py` (list keys, download) -> `data_loading.py` (available dates, validation) -> `input/YYYY-MM-DD/` -> `app.py` -> Gradio UI.
 - **Forecast metrics come from the backend:** RMSE, MAE, MAPE, relative MAE, skill, and directional accuracy are read from `all_forecasts_metadata.yml` (optional; contract v21+). Do not compute error metrics in the frontend, and label `relative_mae` as "relative MAE" (or show `skill`), never "MASE".

@@ -64,6 +64,8 @@ NAIVE_COLOR = "#999999"
 TIMESERIES_PLOT_HEIGHT = 480
 ACTUAL_TOOLTIP = "Actual adjusted close"
 NAIVE_TOOLTIP = "Naive: the most recent observed close"
+# Closes in one trading year, the ARIMA training window since contract v24.
+TRADING_YEAR_CLOSES = 252
 
 
 @dataclass(frozen=True)
@@ -149,6 +151,58 @@ def arima_short_label(p, d, q):
     if pd.isna(d):
         return f"ARIMA({p}, 0, {q}) on log returns"
     return f"ARIMA({p}, {d}, {q})"
+
+
+def training_window_text(training_window_returns):
+    """
+    Describe the ARIMA training window for the text near the forecast plot.
+
+    The window length comes from the date's forecasts metadata, so older
+    dates (20 returns before contract v24) are described correctly too.
+
+    Parameters
+    ----------
+    training_window_returns : int | None
+        Daily log returns in each training window, or None if the date has
+        no forecasts metadata (before contract v21).
+
+    Returns
+    -------
+    str
+        E.g. "the previous trading year (252 closes)" or "the previous 21
+        closes (20 daily log returns)".
+    """
+    if training_window_returns is None:
+        return "a short window of recent trading days"
+    closes = training_window_returns + 1
+    if closes == TRADING_YEAR_CLOSES:
+        return f"the previous trading year ({closes} closes)"
+    return f"the previous {closes} closes ({training_window_returns} daily log returns)"
+
+
+def order_selection_text(forecasts_metadata):
+    """
+    Describe how ARIMA orders are chosen, using the backend's own wording
+    from the forecasts metadata rather than a hard-coded rule.
+
+    Parameters
+    ----------
+    forecasts_metadata : ForecastsMetadata | None
+        Loaded forecasts metadata, if available.
+
+    Returns
+    -------
+    str
+        E.g. "Orders are chosen by lowest BIC, .... Ties go to fewer
+        parameters (p + q), then lower p.", or an empty string if the
+        metadata does not describe the rule.
+    """
+    if forecasts_metadata is None or forecasts_metadata.arima_order_selection is None:
+        return ""
+    text = f"Orders are chosen by {forecasts_metadata.arima_order_selection}."
+    if forecasts_metadata.arima_order_selection_tie_break is not None:
+        text += f" Ties go to {forecasts_metadata.arima_order_selection_tie_break}."
+    return text
 
 
 def format_value(value, spec, suffix=""):
@@ -954,7 +1008,7 @@ class FSFinance:
 
         forecasts_metadata : ForecastsMetadata | None
             Loaded forecasts metadata, if available, for the training
-            window length.
+            window length and the order selection rule.
 
         Returns
         -------
@@ -967,16 +1021,20 @@ class FSFinance:
         has_naive = any(
             str(column).endswith(NAIVE_SUFFIX) for column in forecasts.columns
         )
-        if forecasts_metadata is not None:
-            window = f"the previous {forecasts_metadata.training_window_returns} trading days"
-        else:
-            window = "a short window of recent trading days"
+        window = training_window_text(
+            forecasts_metadata.training_window_returns
+            if forecasts_metadata is not None
+            else None
+        )
         how = (
             f"For every day and ticker, an ARIMA model is refit on {window}, and its "
             "orders p and q are chosen again, so they can change from one day to the "
             "next. If a close is missing from the data, the next day's ARIMA "
             "forecast is skipped and the line joins across the gap."
         )
+        selection = order_selection_text(forecasts_metadata)
+        if selection:
+            how += f" {selection}"
         if has_orders:
             how += " Hover over a forecast to see the model behind it."
         lines = [

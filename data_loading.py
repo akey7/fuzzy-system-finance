@@ -1,7 +1,7 @@
 """
 Load and validate the files the backend delivers to the S3 buckets.
 
-Every loader in this module follows INTERFACE_CONTRACT.md (contract version 23)
+Every loader in this module follows INTERFACE_CONTRACT.md (contract version 24)
 and raises DataLoadError with a human-readable message when a file is
 missing, does not parse, predates contract v4, or lacks a required key,
 column, group, or dataset. Anything the contract does not require is ignored,
@@ -28,7 +28,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-CONTRACT_VERSION = 23
+CONTRACT_VERSION = 24
 
 OPTIMIZATION_METADATA_KEY = "optimization_metadata.yml"
 PLOT_DATA_KEY = "portfolio_optimization_plot_data.h5"
@@ -155,7 +155,9 @@ class ForecastsMetadata:
     """
     Contents of all_forecasts_metadata.yml (contract v21) that the frontend
     uses. Ticker keys in ticker_metrics are lowercase, as in the file; look
-    tickers up with metrics_for(), which ignores case.
+    tickers up with metrics_for(), which ignores case. The ARIMA order
+    selection rule and its tie-break are optional free text from the
+    backend (the tie-break since v23), None when absent.
     """
 
     training_window_start_date: str
@@ -168,6 +170,8 @@ class ForecastsMetadata:
     evaluation_end_date: str | None
     arima_description: str | None
     naive_description: str | None
+    arima_order_selection: str | None
+    arima_order_selection_tie_break: str | None
     ticker_metrics: dict[str, TickerMetrics]
 
     def metrics_for(self, ticker: str) -> TickerMetrics | None:
@@ -919,6 +923,10 @@ def load_forecasts_metadata(path: str) -> ForecastsMetadata:
         evaluation_end_date=_optional_str(evaluation_window, "end_date"),
         arima_description=_optional_str(models.get("arima"), "description"),
         naive_description=_optional_str(models.get("naive"), "description"),
+        arima_order_selection=_optional_str(models.get("arima"), "order_selection"),
+        arima_order_selection_tie_break=_optional_str(
+            models.get("arima"), "order_selection_tie_break"
+        ),
         ticker_metrics=metrics,
     )
 
