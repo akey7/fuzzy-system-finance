@@ -180,6 +180,35 @@ def training_window_text(training_window_returns):
     return f"the previous {closes} closes ({training_window_returns} daily log returns)"
 
 
+def metrics_windows_text(training_window_returns, target_trading_days):
+    """
+    Name the training window and the scoring window side by side, so the
+    small-sample caveat on the accuracy metrics is not read as describing
+    the training data.
+
+    Parameters
+    ----------
+    training_window_returns : int
+        Daily log returns in each ARIMA training window (one fewer than
+        its closes, which are the trading days shown).
+
+    target_trading_days : int
+        Most recent days with an actual close that the metrics score.
+
+    Returns
+    -------
+    str
+        E.g. "ARIMA training windows are 252 trading days in length.
+        Accuracy is scored over only the last 20 trading days, which is a
+        small sample, so treat these figures as indicative."
+    """
+    return (
+        f"ARIMA training windows are {training_window_returns + 1} trading days "
+        f"in length. Accuracy is scored over only the last {target_trading_days} "
+        "trading days, which is a small sample, so treat these figures as indicative."
+    )
+
+
 def order_selection_text(forecasts_metadata):
     """
     Describe how ARIMA orders are chosen, using the backend's own wording
@@ -946,7 +975,9 @@ class FSFinance:
         """
         Generate the contract's suggested wording for interpreting the
         forecast accuracy metrics, shown at the end of the summary half of
-        the metrics panel.
+        the metrics panel. It names both the training window and the
+        shorter scoring window, and keeps the contract's small-sample
+        caveat for the latter.
 
         Parameters
         ----------
@@ -963,14 +994,14 @@ class FSFinance:
             return ""
         days = forecasts_metadata.target_trading_days
         return (
-            "**Reading the accuracy metrics.** Accuracy over the last "
-            f"{days} trading days, comparing each forecast with the actual close. "
+            "**Reading the accuracy metrics.** Accuracy of the last "
+            f"{days} forecasts, comparing each with the actual close. "
             "Relative MAE below 1 (skill above 0) means ARIMA's errors were smaller "
             "than the naive forecast's. RMSE and MAE are in dollars per share; MAPE "
             "is in percent and can be compared across tickers. Directional accuracy "
             "is the share of days on which ARIMA predicted the direction of the move "
             "correctly; the naive forecast predicts no move, so it has none. "
-            f"{days} days is a small sample, so treat these as indicative."
+            + metrics_windows_text(forecasts_metadata.training_window_returns, days)
         )
 
     def timeseries_as_of_markdown(self, forecasts):
