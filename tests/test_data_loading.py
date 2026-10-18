@@ -405,13 +405,14 @@ def test_malformed_optional_columns_are_dropped(tmp_path):
     assert forecast_tickers(df.columns) == ["GLD"]
 
 
-# all_forecasts_metadata.yml (contract v21)
+# all_forecasts_metadata.yml (contract v21, with v24 values)
 
 
-def v21_forecasts_metadata() -> dict:
+def v24_forecasts_metadata() -> dict:
     """
-    Return an all_forecasts_metadata.yml document based on the contract's
-    example, with lowercase ticker keys, a null metric, and an unknown key.
+    Return an all_forecasts_metadata.yml document based on the contract v24
+    example (a one-year training window and the lowest-BIC order rule), with
+    lowercase ticker keys, a null metric, and an unknown key.
     """
     return {
         "evaluation_window": {
@@ -423,11 +424,18 @@ def v21_forecasts_metadata() -> dict:
             "forecast_date": "2026-10-09",
             "horizon_trading_days": 1,
             "training_window_end_date": "2026-10-08",
-            "training_window_returns": 20,
-            "training_window_start_date": "2026-09-09",
+            "training_window_returns": 251,
+            "training_window_start_date": "2025-10-07",
         },
         "models": {
-            "arima": {"d": 1, "description": "ARIMA(p, 0, q) on daily log returns"},
+            "arima": {
+                "d": 1,
+                "description": "ARIMA(p, 0, q) on daily log returns",
+                "order_selection": "lowest BIC, each candidate order fit once on "
+                "the whole training window",
+                "order_selection_subwindow_returns": 251,
+                "order_selection_tie_break": "fewer parameters (p + q), then lower p",
+            },
             "naive": {"description": "the most recent observed close (random walk)"},
         },
         "ticker_metrics": {
@@ -467,11 +475,13 @@ def v21_forecasts_metadata() -> dict:
 
 
 def test_forecasts_metadata_loads(tmp_path):
-    fm = load_forecasts_metadata(write_yaml(tmp_path / "fm.yml", v21_forecasts_metadata()))
+    fm = load_forecasts_metadata(write_yaml(tmp_path / "fm.yml", v24_forecasts_metadata()))
     assert fm.forecast_date == "2026-10-09"
     assert fm.training_window_end_date == "2026-10-08"
-    assert fm.training_window_returns == 20
+    assert fm.training_window_returns == 251
     assert fm.target_trading_days == 20
+    assert fm.arima_order_selection.startswith("lowest BIC")
+    assert fm.arima_order_selection_tie_break == "fewer parameters (p + q), then lower p"
     gld = fm.metrics_for("GLD")  # uppercase lookup of a lowercase key
     assert gld.arima.rmse == 1.52
     assert gld.naive.mape == 1.37
@@ -480,7 +490,7 @@ def test_forecasts_metadata_loads(tmp_path):
 
 
 def test_forecasts_metadata_nulls_and_missing_values(tmp_path):
-    fm = load_forecasts_metadata(write_yaml(tmp_path / "fm.yml", v21_forecasts_metadata()))
+    fm = load_forecasts_metadata(write_yaml(tmp_path / "fm.yml", v24_forecasts_metadata()))
     nvda = fm.metrics_for("nvda")
     assert nvda.arima.directional_accuracy is None
     assert nvda.skill is None
@@ -489,8 +499,22 @@ def test_forecasts_metadata_nulls_and_missing_values(tmp_path):
     assert fm.metrics_for("QQQ") is None
 
 
+def test_forecasts_metadata_order_selection_is_optional(tmp_path):
+    # Files before v23 have no tie-break; any file may lack the rule.
+    document = v24_forecasts_metadata()
+    del document["models"]["arima"]["order_selection_tie_break"]
+    fm = load_forecasts_metadata(write_yaml(tmp_path / "fm.yml", document))
+    assert fm.arima_order_selection is not None
+    assert fm.arima_order_selection_tie_break is None
+
+    del document["models"]
+    fm = load_forecasts_metadata(write_yaml(tmp_path / "fm2.yml", document))
+    assert fm.arima_order_selection is None
+    assert fm.arima_order_selection_tie_break is None
+
+
 def test_forecasts_metadata_rejects_wrong_units(tmp_path):
-    document = v21_forecasts_metadata()
+    document = v24_forecasts_metadata()
     document["units"]["mape"] = "fraction"
     path = write_yaml(tmp_path / "fm.yml", document)
     with pytest.raises(DataLoadError, match="mape"):
@@ -498,7 +522,7 @@ def test_forecasts_metadata_rejects_wrong_units(tmp_path):
 
 
 def test_forecasts_metadata_requires_ticker_metrics(tmp_path):
-    document = v21_forecasts_metadata()
+    document = v24_forecasts_metadata()
     del document["ticker_metrics"]
     path = write_yaml(tmp_path / "fm.yml", document)
     with pytest.raises(DataLoadError, match="ticker_metrics"):
@@ -506,7 +530,7 @@ def test_forecasts_metadata_requires_ticker_metrics(tmp_path):
 
 
 def test_forecasts_metadata_non_numeric_metric(tmp_path):
-    document = v21_forecasts_metadata()
+    document = v24_forecasts_metadata()
     document["ticker_metrics"]["gld"]["arima"]["rmse"] = "big"
     path = write_yaml(tmp_path / "fm.yml", document)
     with pytest.raises(DataLoadError, match="ticker_metrics.gld.arima.rmse"):
@@ -520,12 +544,12 @@ def test_forecasts_metadata_missing_file(tmp_path):
 
 def test_folder_date_warnings_forecasts_metadata(tmp_path):
     forecasts = load_forecasts(write_csv(tmp_path / "f.csv", FORECASTS_CSV))
-    fm = load_forecasts_metadata(write_yaml(tmp_path / "fm.yml", v21_forecasts_metadata()))
+    fm = load_forecasts_metadata(write_yaml(tmp_path / "fm.yml", v24_forecasts_metadata()))
     # Folder 2026-10-08: actuals through 10-08, training window ends 10-08,
     # and the live forecast is for 10-09 in both files.
     assert folder_date_warnings("2026-10-08", None, forecasts, fm) == []
 
-    document = v21_forecasts_metadata()
+    document = v24_forecasts_metadata()
     document["forecast_window"]["forecast_date"] = "2026-10-10"
     document["forecast_window"]["training_window_end_date"] = "2026-10-07"
     other = load_forecasts_metadata(write_yaml(tmp_path / "fm2.yml", document))

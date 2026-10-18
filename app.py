@@ -59,8 +59,16 @@ FORECASTS_METADATA_UNPUBLISHED = (
 ACTUAL_COLOR = "#0072B2"
 ARIMA_COLOR = "#D55E00"
 NAIVE_COLOR = "#999999"
+# Height of the time series plot in pixels (about twice Gradio's default,
+# which was too short once the angled date labels took their space).
+TIMESERIES_PLOT_HEIGHT = 480
 ACTUAL_TOOLTIP = "Actual adjusted close"
 NAIVE_TOOLTIP = "Naive: the most recent observed close"
+# Relative MAE strictly inside this band is reported as "approximately tied"
+# with the naive forecast instead of smaller or larger. If you change it, also
+# change "within 2% of 1" in metrics_note_markdown().
+TIED_RELATIVE_MAE_LOW = 0.980
+TIED_RELATIVE_MAE_HIGH = 1.020
 
 
 @dataclass(frozen=True)
@@ -146,6 +154,118 @@ def arima_short_label(p, d, q):
     if pd.isna(d):
         return f"ARIMA({p}, 0, {q}) on log returns"
     return f"ARIMA({p}, {d}, {q})"
+
+
+def training_window_text(training_window_returns):
+    """
+    Describe the ARIMA training window for the text near the forecast plot,
+    in the contract's suggested wording.
+
+    The window length is a backend setting that can change between runs,
+    so it is never assumed: it comes from the date's forecasts metadata as
+    closes (training_window_returns + 1), and is left out when the date has
+    no metadata.
+
+    Parameters
+    ----------
+    training_window_returns : int | None
+        Daily log returns in each training window, or None if the date has
+        no forecasts metadata (before contract v21).
+
+    Returns
+    -------
+    str
+        E.g. "a window of the most recent closes before that day (252
+        trading days)", or the same without the parenthesis.
+    """
+    text = "a window of the most recent closes before that day"
+    if training_window_returns is None:
+        return text
+    return f"{text} ({training_window_returns + 1} trading days)"
+
+
+def metrics_windows_text(training_window_returns, target_trading_days):
+    """
+    Name the training window next to the contract's sample-size caveat on
+    the scored days, so the caveat is not read as describing the training
+    data. Both lengths are backend settings read from the metadata.
+
+    Parameters
+    ----------
+    training_window_returns : int
+        Daily log returns in each ARIMA training window (one fewer than
+        its closes, which are the trading days shown).
+
+    target_trading_days : int
+        Most recent days with an actual close that the metrics score.
+
+    Returns
+    -------
+    str
+        E.g. "ARIMA training windows are 252 trading days in length. 60
+        trading days is a modest sample, and consecutive forecasts are not
+        independent, so the effective sample is smaller still; treat these
+        as indicative."
+    """
+    return (
+        f"ARIMA training windows are {training_window_returns + 1} trading days "
+        f"in length. {target_trading_days} trading days is a modest sample, and "
+        "consecutive forecasts are not independent, so the effective sample is "
+        "smaller still; treat these as indicative."
+    )
+
+
+def accuracy_verdict(relative_mae):
+    """
+    Summarize in words how ARIMA's average error compared with the naive
+    forecast's, from the backend's relative MAE (ARIMA MAE ÷ naive MAE).
+
+    Values strictly between TIED_RELATIVE_MAE_LOW and TIED_RELATIVE_MAE_HIGH
+    (within 2% of 1, including exactly 1) count as approximately tied, so a
+    tiny difference is not reported as ARIMA winning or losing.
+
+    Parameters
+    ----------
+    relative_mae : float | None
+        The ticker's relative MAE, or None if nothing could be compared.
+
+    Returns
+    -------
+    str
+        One sentence of markdown.
+    """
+    if relative_mae is None:
+        return "Not enough scored days to compare ARIMA with the naive forecast."
+    if TIED_RELATIVE_MAE_LOW < relative_mae < TIED_RELATIVE_MAE_HIGH:
+        return "ARIMA's average error was **approximately tied** with the naive forecast's."
+    if relative_mae < 1:
+        return "ARIMA's average error was **smaller** than the naive forecast's."
+    return "ARIMA's average error was **larger** than the naive forecast's."
+
+
+def order_selection_text(forecasts_metadata):
+    """
+    Describe how ARIMA orders are chosen, using the backend's own wording
+    from the forecasts metadata rather than a hard-coded rule.
+
+    Parameters
+    ----------
+    forecasts_metadata : ForecastsMetadata | None
+        Loaded forecasts metadata, if available.
+
+    Returns
+    -------
+    str
+        E.g. "Orders are chosen by lowest BIC, .... Ties go to fewer
+        parameters (p + q), then lower p.", or an empty string if the
+        metadata does not describe the rule.
+    """
+    if forecasts_metadata is None or forecasts_metadata.arima_order_selection is None:
+        return ""
+    text = f"Orders are chosen by {forecasts_metadata.arima_order_selection}."
+    if forecasts_metadata.arima_order_selection_tie_break is not None:
+        text += f" Ties go to {forecasts_metadata.arima_order_selection_tie_break}."
+    return text
 
 
 def format_value(value, spec, suffix=""):
@@ -583,6 +703,7 @@ class FSFinance:
             color_map=color_map,
             tooltip=["Series", "Model"],
             y_lim=[min_value, max_value],
+            height=TIMESERIES_PLOT_HEIGHT,
         )
         return chart
 
@@ -850,14 +971,7 @@ class FSFinance:
                 f"{m.arima.directional_accuracy:.0%} "
                 f"({format_value(m.arima.n_directional, 'd')} days)"
             )
-        if m.skill is None:
-            verdict = "Not enough scored days to compare ARIMA with the naive forecast."
-        elif m.skill > 0:
-            verdict = "ARIMA's average error was **smaller** than the naive forecast's."
-        elif m.skill < 0:
-            verdict = "ARIMA's average error was **larger** than the naive forecast's."
-        else:
-            verdict = "ARIMA's average error was the **same** as the naive forecast's."
+        verdict = accuracy_verdict(m.relative_mae)
         lines += [
             f"Scored on {format_value(m.n_evaluated, 'd')} of "
             f"{forecasts_metadata.target_trading_days} trading days "
@@ -888,7 +1002,9 @@ class FSFinance:
         """
         Generate the contract's suggested wording for interpreting the
         forecast accuracy metrics, shown at the end of the summary half of
-        the metrics panel.
+        the metrics panel. It names both the training window and the
+        scoring window, read from the metadata, and keeps the contract's
+        sample-size caveat for the latter.
 
         Parameters
         ----------
@@ -908,11 +1024,12 @@ class FSFinance:
             "**Reading the accuracy metrics.** Accuracy over the last "
             f"{days} trading days, comparing each forecast with the actual close. "
             "Relative MAE below 1 (skill above 0) means ARIMA's errors were smaller "
-            "than the naive forecast's. RMSE and MAE are in dollars per share; MAPE "
+            "than the naive forecast's. Values within 2% of 1 are shown as "
+            "approximately tied. RMSE and MAE are in dollars per share; MAPE "
             "is in percent and can be compared across tickers. Directional accuracy "
             "is the share of days on which ARIMA predicted the direction of the move "
             "correctly; the naive forecast predicts no move, so it has none. "
-            f"{days} days is a small sample, so treat these as indicative."
+            + metrics_windows_text(forecasts_metadata.training_window_returns, days)
         )
 
     def timeseries_as_of_markdown(self, forecasts):
@@ -932,7 +1049,7 @@ class FSFinance:
         """
         as_of = last_actual_date(forecasts)
         as_of_text = as_of.date() if as_of is not None else "no actual prices yet"
-        return f"**Data as of:** {as_of_text}"
+        return f"## Data as of: {as_of_text}"
 
     def timeseries_intro_markdown(self, forecasts, forecasts_metadata):
         """
@@ -950,7 +1067,7 @@ class FSFinance:
 
         forecasts_metadata : ForecastsMetadata | None
             Loaded forecasts metadata, if available, for the training
-            window length.
+            window length and the order selection rule.
 
         Returns
         -------
@@ -963,16 +1080,20 @@ class FSFinance:
         has_naive = any(
             str(column).endswith(NAIVE_SUFFIX) for column in forecasts.columns
         )
-        if forecasts_metadata is not None:
-            window = f"the previous {forecasts_metadata.training_window_returns} trading days"
-        else:
-            window = "a short window of recent trading days"
+        window = training_window_text(
+            forecasts_metadata.training_window_returns
+            if forecasts_metadata is not None
+            else None
+        )
         how = (
             f"For every day and ticker, an ARIMA model is refit on {window}, and its "
             "orders p and q are chosen again, so they can change from one day to the "
             "next. If a close is missing from the data, the next day's ARIMA "
             "forecast is skipped and the line joins across the gap."
         )
+        selection = order_selection_text(forecasts_metadata)
+        if selection:
+            how += f" {selection}"
         if has_orders:
             how += " Hover over a forecast to see the model behind it."
         lines = [
@@ -1014,8 +1135,9 @@ class FSFinance:
         """
         # Make the accuracy table fill its half of the metrics panel,
         # highlight the live forecast with a light yellow background (a
-        # muted dark yellow in dark mode, where text is light), and make the
-        # methods accordion's label bold (its size stays the default).
+        # muted dark yellow in dark mode, where text is light) that stretches
+        # to the bottom of the plot, and make the methods accordion's label
+        # bold (its size stays the default).
         css = """
         .metrics-table table { width: 100% !important; }
         .live-forecast {
@@ -1024,6 +1146,12 @@ class FSFinance:
             border-radius: 8px;
         }
         .dark .live-forecast { background: #4A4220 !important; }
+        /* Stretch the live forecast box to the bottom of the plot beside it. */
+        .live-forecast { flex-grow: 1 !important; }
+        /* Everything inside the box (heading, text, list) 50% larger. zoom
+           scales font sizes and spacing together, and only the text's
+           elements are targeted, so the box keeps its size. */
+        .prose.live-forecast > * { zoom: 1.5; }
         .methods-accordion .label-wrap > span:first-child {
             font-weight: 700 !important;
         }
@@ -1050,8 +1178,14 @@ class FSFinance:
             # ARIMA-vs-naive summary followed by how to read the metrics
             # (right half); then the full-width explanation of the forecasts
             # and a horizontal rule.
-            with gr.Row():
-                with gr.Column(scale=1):
+            # equal_height lets the left column match the plot's height, so the
+            # live forecast box (flex-grow in the CSS) reaches its bottom.
+            # Scales 1:3 give the ticker and live forecast a quarter of the
+            # row and the plot the rest. min_width is lowered from Gradio's
+            # default 320 px, which would otherwise keep the left column
+            # wider than a quarter on typical screens.
+            with gr.Row(equal_height=True):
+                with gr.Column(scale=1, min_width=240):
                     ticker_dropdown = gr.Dropdown(
                         choices=[],
                         value=None,
@@ -1062,7 +1196,7 @@ class FSFinance:
                         "", elem_classes=["live-forecast"], visible=False
                     )
 
-                with gr.Column(scale=2):
+                with gr.Column(scale=3):
 
                     @gr.render(
                         inputs=[date_dropdown, marker_state, ticker_dropdown],
