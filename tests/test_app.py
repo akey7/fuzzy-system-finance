@@ -9,34 +9,36 @@ from types import SimpleNamespace
 from app import metrics_windows_text, order_selection_text, training_window_text
 
 
-def test_training_window_text_one_trading_year():
-    # Contract v24: 252 closes, 251 daily log returns.
-    assert training_window_text(251) == "the previous trading year (252 closes)"
-
-
-def test_training_window_text_older_dates():
-    # Before contract v24: 20 daily log returns.
-    assert training_window_text(20) == "the previous 21 closes (20 daily log returns)"
-
-
-def test_training_window_text_without_metadata():
-    assert training_window_text(None) == "a short window of recent trading days"
-
-
-def test_metrics_windows_text_one_trading_year():
-    # Contract v24: 251 returns (252 closes) of training, 20 scored days.
-    assert metrics_windows_text(251, 20) == (
-        "ARIMA training windows are 252 trading days in length. Accuracy is "
-        "scored over only the last 20 trading days, which is a small sample, "
-        "so treat these figures as indicative."
+def test_training_window_text_fills_closes():
+    # Closes = training_window_returns + 1, whatever the backend setting.
+    assert training_window_text(251) == (
+        "a window of the most recent closes before that day (252 trading days)"
+    )
+    assert training_window_text(20) == (
+        "a window of the most recent closes before that day (21 trading days)"
     )
 
 
-def test_metrics_windows_text_older_dates():
-    # Before contract v24: 20 returns (21 closes) of training.
+def test_training_window_text_without_metadata():
+    # Before contract v21: no metadata, so the parenthesis is left out.
+    assert training_window_text(None) == (
+        "a window of the most recent closes before that day"
+    )
+
+
+def test_metrics_windows_text():
+    assert metrics_windows_text(251, 60) == (
+        "ARIMA training windows are 252 trading days in length. 60 trading days "
+        "is a modest sample, and consecutive forecasts are not independent, so "
+        "the effective sample is smaller still; treat these as indicative."
+    )
+
+
+def test_metrics_windows_text_other_settings():
+    # Older dates: 20 returns (21 closes) of training and 20 scored days.
     text = metrics_windows_text(20, 20)
     assert text.startswith("ARIMA training windows are 21 trading days in length.")
-    assert "last 20 trading days" in text
+    assert "20 trading days is a modest sample" in text
 
 
 def test_order_selection_text_with_tie_break():

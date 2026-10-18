@@ -64,8 +64,6 @@ NAIVE_COLOR = "#999999"
 TIMESERIES_PLOT_HEIGHT = 480
 ACTUAL_TOOLTIP = "Actual adjusted close"
 NAIVE_TOOLTIP = "Naive: the most recent observed close"
-# Closes in one trading year, the ARIMA training window since contract v24.
-TRADING_YEAR_CLOSES = 252
 
 
 @dataclass(frozen=True)
@@ -155,10 +153,13 @@ def arima_short_label(p, d, q):
 
 def training_window_text(training_window_returns):
     """
-    Describe the ARIMA training window for the text near the forecast plot.
+    Describe the ARIMA training window for the text near the forecast plot,
+    in the contract's suggested wording.
 
-    The window length comes from the date's forecasts metadata, so older
-    dates (20 returns before contract v24) are described correctly too.
+    The window length is a backend setting that can change between runs,
+    so it is never assumed: it comes from the date's forecasts metadata as
+    closes (training_window_returns + 1), and is left out when the date has
+    no metadata.
 
     Parameters
     ----------
@@ -169,22 +170,20 @@ def training_window_text(training_window_returns):
     Returns
     -------
     str
-        E.g. "the previous trading year (252 closes)" or "the previous 21
-        closes (20 daily log returns)".
+        E.g. "a window of the most recent closes before that day (252
+        trading days)", or the same without the parenthesis.
     """
+    text = "a window of the most recent closes before that day"
     if training_window_returns is None:
-        return "a short window of recent trading days"
-    closes = training_window_returns + 1
-    if closes == TRADING_YEAR_CLOSES:
-        return f"the previous trading year ({closes} closes)"
-    return f"the previous {closes} closes ({training_window_returns} daily log returns)"
+        return text
+    return f"{text} ({training_window_returns + 1} trading days)"
 
 
 def metrics_windows_text(training_window_returns, target_trading_days):
     """
-    Name the training window and the scoring window side by side, so the
-    small-sample caveat on the accuracy metrics is not read as describing
-    the training data.
+    Name the training window next to the contract's sample-size caveat on
+    the scored days, so the caveat is not read as describing the training
+    data. Both lengths are backend settings read from the metadata.
 
     Parameters
     ----------
@@ -198,14 +197,16 @@ def metrics_windows_text(training_window_returns, target_trading_days):
     Returns
     -------
     str
-        E.g. "ARIMA training windows are 252 trading days in length.
-        Accuracy is scored over only the last 20 trading days, which is a
-        small sample, so treat these figures as indicative."
+        E.g. "ARIMA training windows are 252 trading days in length. 60
+        trading days is a modest sample, and consecutive forecasts are not
+        independent, so the effective sample is smaller still; treat these
+        as indicative."
     """
     return (
         f"ARIMA training windows are {training_window_returns + 1} trading days "
-        f"in length. Accuracy is scored over only the last {target_trading_days} "
-        "trading days, which is a small sample, so treat these figures as indicative."
+        f"in length. {target_trading_days} trading days is a modest sample, and "
+        "consecutive forecasts are not independent, so the effective sample is "
+        "smaller still; treat these as indicative."
     )
 
 
@@ -976,8 +977,8 @@ class FSFinance:
         Generate the contract's suggested wording for interpreting the
         forecast accuracy metrics, shown at the end of the summary half of
         the metrics panel. It names both the training window and the
-        shorter scoring window, and keeps the contract's small-sample
-        caveat for the latter.
+        scoring window, read from the metadata, and keeps the contract's
+        sample-size caveat for the latter.
 
         Parameters
         ----------
@@ -994,8 +995,8 @@ class FSFinance:
             return ""
         days = forecasts_metadata.target_trading_days
         return (
-            "**Reading the accuracy metrics.** Accuracy of the last "
-            f"{days} forecasts, comparing each with the actual close. "
+            "**Reading the accuracy metrics.** Accuracy over the last "
+            f"{days} trading days, comparing each forecast with the actual close. "
             "Relative MAE below 1 (skill above 0) means ARIMA's errors were smaller "
             "than the naive forecast's. RMSE and MAE are in dollars per share; MAPE "
             "is in percent and can be compared across tickers. Directional accuracy "
