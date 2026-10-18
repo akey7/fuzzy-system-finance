@@ -1,12 +1,19 @@
 """
 Tests for the text helpers in app.py that describe how the forecasts are
-made and scored. No Gradio app is built, and nothing under input/ or the network is
+made and scored, and how ARIMA compared with the naive forecast. No Gradio app is built, and nothing under input/ or the network is
 touched.
 """
 
 from types import SimpleNamespace
 
-from app import metrics_windows_text, order_selection_text, training_window_text
+import pytest
+
+from app import (
+    accuracy_verdict,
+    metrics_windows_text,
+    order_selection_text,
+    training_window_text,
+)
 
 
 def test_training_window_text_fills_closes():
@@ -39,6 +46,27 @@ def test_metrics_windows_text_other_settings():
     text = metrics_windows_text(20, 20)
     assert text.startswith("ARIMA training windows are 21 trading days in length.")
     assert "20 trading days is a modest sample" in text
+
+
+@pytest.mark.parametrize("relative_mae", [0.981, 0.995, 1.0, 1.019])
+def test_accuracy_verdict_approximately_tied(relative_mae):
+    assert "**approximately tied**" in accuracy_verdict(relative_mae)
+
+
+@pytest.mark.parametrize("relative_mae", [0.5, 0.98])
+def test_accuracy_verdict_smaller(relative_mae):
+    # 0.98 itself is outside the open band.
+    assert "**smaller**" in accuracy_verdict(relative_mae)
+
+
+@pytest.mark.parametrize("relative_mae", [1.02, 1.5])
+def test_accuracy_verdict_larger(relative_mae):
+    # 1.02 itself is outside the open band.
+    assert "**larger**" in accuracy_verdict(relative_mae)
+
+
+def test_accuracy_verdict_missing():
+    assert accuracy_verdict(None).startswith("Not enough scored days")
 
 
 def test_order_selection_text_with_tie_break():

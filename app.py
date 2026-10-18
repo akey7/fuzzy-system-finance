@@ -64,6 +64,11 @@ NAIVE_COLOR = "#999999"
 TIMESERIES_PLOT_HEIGHT = 480
 ACTUAL_TOOLTIP = "Actual adjusted close"
 NAIVE_TOOLTIP = "Naive: the most recent observed close"
+# Relative MAE strictly inside this band is reported as "approximately tied"
+# with the naive forecast instead of smaller or larger. If you change it, also
+# change "within 2% of 1" in metrics_note_markdown().
+TIED_RELATIVE_MAE_LOW = 0.980
+TIED_RELATIVE_MAE_HIGH = 1.020
 
 
 @dataclass(frozen=True)
@@ -208,6 +213,34 @@ def metrics_windows_text(training_window_returns, target_trading_days):
         "consecutive forecasts are not independent, so the effective sample is "
         "smaller still; treat these as indicative."
     )
+
+
+def accuracy_verdict(relative_mae):
+    """
+    Summarize in words how ARIMA's average error compared with the naive
+    forecast's, from the backend's relative MAE (ARIMA MAE ÷ naive MAE).
+
+    Values strictly between TIED_RELATIVE_MAE_LOW and TIED_RELATIVE_MAE_HIGH
+    (within 2% of 1, including exactly 1) count as approximately tied, so a
+    tiny difference is not reported as ARIMA winning or losing.
+
+    Parameters
+    ----------
+    relative_mae : float | None
+        The ticker's relative MAE, or None if nothing could be compared.
+
+    Returns
+    -------
+    str
+        One sentence of markdown.
+    """
+    if relative_mae is None:
+        return "Not enough scored days to compare ARIMA with the naive forecast."
+    if TIED_RELATIVE_MAE_LOW < relative_mae < TIED_RELATIVE_MAE_HIGH:
+        return "ARIMA's average error was **approximately tied** with the naive forecast's."
+    if relative_mae < 1:
+        return "ARIMA's average error was **smaller** than the naive forecast's."
+    return "ARIMA's average error was **larger** than the naive forecast's."
 
 
 def order_selection_text(forecasts_metadata):
@@ -938,14 +971,7 @@ class FSFinance:
                 f"{m.arima.directional_accuracy:.0%} "
                 f"({format_value(m.arima.n_directional, 'd')} days)"
             )
-        if m.skill is None:
-            verdict = "Not enough scored days to compare ARIMA with the naive forecast."
-        elif m.skill > 0:
-            verdict = "ARIMA's average error was **smaller** than the naive forecast's."
-        elif m.skill < 0:
-            verdict = "ARIMA's average error was **larger** than the naive forecast's."
-        else:
-            verdict = "ARIMA's average error was the **same** as the naive forecast's."
+        verdict = accuracy_verdict(m.relative_mae)
         lines += [
             f"Scored on {format_value(m.n_evaluated, 'd')} of "
             f"{forecasts_metadata.target_trading_days} trading days "
@@ -998,7 +1024,8 @@ class FSFinance:
             "**Reading the accuracy metrics.** Accuracy over the last "
             f"{days} trading days, comparing each forecast with the actual close. "
             "Relative MAE below 1 (skill above 0) means ARIMA's errors were smaller "
-            "than the naive forecast's. RMSE and MAE are in dollars per share; MAPE "
+            "than the naive forecast's. Values within 2% of 1 are shown as "
+            "approximately tied. RMSE and MAE are in dollars per share; MAPE "
             "is in percent and can be compared across tickers. Directional accuracy "
             "is the share of days on which ARIMA predicted the direction of the move "
             "correctly; the naive forecast predicts no move, so it has none. "
