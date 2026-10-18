@@ -1153,8 +1153,12 @@ class FSFinance:
             # and a horizontal rule.
             # equal_height lets the left column match the plot's height, so the
             # live forecast box (flex-grow in the CSS) reaches its bottom.
+            # Scales 1:3 give the ticker and live forecast a quarter of the
+            # row and the plot the rest. min_width is lowered from Gradio's
+            # default 320 px, which would otherwise keep the left column
+            # wider than a quarter on typical screens.
             with gr.Row(equal_height=True):
-                with gr.Column(scale=1):
+                with gr.Column(scale=1, min_width=240):
                     ticker_dropdown = gr.Dropdown(
                         choices=[],
                         value=None,
@@ -1165,7 +1169,7 @@ class FSFinance:
                         "", elem_classes=["live-forecast"], visible=False
                     )
 
-                with gr.Column(scale=2):
+                with gr.Column(scale=3):
 
                     @gr.render(
                         inputs=[date_dropdown, marker_state, ticker_dropdown],
