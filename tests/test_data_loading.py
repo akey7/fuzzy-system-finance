@@ -1,6 +1,6 @@
 """
 Tests for data_loading.py against synthetic files that follow
-INTERFACE_CONTRACT.md. All files are written to pytest's tmp_path;
+docs/INTERFACE_CONTRACT.md. All files are written to pytest's tmp_path;
 nothing under input/ is read or written.
 """
 
