@@ -47,4 +47,4 @@ For mathematical methods and evaluation results, see the backend's [Methods and 
 
 ---
 
-*Not investment advice. Every value shown is a backtest or model output computed from historical prices, and none of it predicts future results or recommends any investment.*
+*Not investment advice.*
