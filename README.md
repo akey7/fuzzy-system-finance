@@ -34,7 +34,7 @@ This architecture supports a lightweight deployment while preserving analytical 
 ## Documentation
 
 - **[Dashboard Guide](docs/DASHBOARD_GUIDE.md):** Visualizations, interactive features, quantitative interpretation, and limitations.
-- **[Installation and Architecture](docs/INSTALLATION_AND_ARCHITECTURE.md):** Local installation, configuration, execution, testing, object storage, and deployment.
+- **[Architecture and Installation](docs/ARCHITECTURE_AND_INSTALLATION.md):** Object storage and data flow, local installation, configuration, execution, testing, and deployment.
 - **[Interface Contract](docs/INTERFACE_CONTRACT.md):** Versioned data formats, schema definitions, compatibility requirements, and backend/frontend integration.
 
 ## Related Repository
@@ -47,4 +47,4 @@ For mathematical methods and evaluation results, see the backend's [Methods and 
 
 ---
 
-*Not investment advice.*
+*Not investment advice. Every value shown is a backtest or model output computed from historical prices, and none of it predicts future results or recommends any investment.*
