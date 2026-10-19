@@ -60,7 +60,7 @@ uv export --format requirements-txt --no-dev --no-hashes -o requirements.txt
 
 ### Keeping versions in sync with Hugging Face Spaces
 
-Hugging Face reads the Python and Gradio versions from this README's frontmatter, not from `pyproject.toml`, so these must be kept in agreement by hand:
+Hugging Face reads the Python and Gradio versions from the frontmatter of [`README.md`](../README.md), not from `pyproject.toml`, so these must be kept in agreement by hand:
 
 - **Python:** `python_version` in the frontmatter and `.python-version` must name the same exact version (currently `3.13.5`). `requires-python` in `pyproject.toml` (`==3.13.*`) must include it; it covers the whole 3.13 series, so a patch upgrade does not require re-locking.
 - **Gradio:** `sdk_version` in the frontmatter and the `gradio==` pin in `pyproject.toml`.
@@ -69,7 +69,7 @@ Development is on macOS while Hugging Face runs Debian Linux, so the environment
 
 ### `.env` file and environment variables
 
-On the production deployment on HuggingFace Spaces, these environment variables are held by the secrets manager. On a development environment, these are managed in a `.env` file.
+On the production deployment on Hugging Face Spaces, these environment variables are held by the secrets manager. On a development environment, these are managed in a `.env` file **that should never be committed to GitHub or Hugging Face**.
 
 1. `FSF_FRONT_END_BUCKET_ENDPOINT`: the **region-only** endpoint, `https://<region>.digitaloceanspaces.com`. Do **not** use the Space-specific "origin endpoint" (`https://<space>.<region>.digitaloceanspaces.com`); with it, listing the available dates fails with `NoSuchKey`.
 
@@ -82,6 +82,12 @@ On the production deployment on HuggingFace Spaces, these environment variables 
 5. `FSF_FRONT_END_TIME_SERIES_FOLDER`: the **top-level folder** inside the Space that holds the time series forecasts (e.g. `time-series`).
 
 Dev and production share the one Space and differ only in the two folder names, so these two variables select the environment. Use the same pair of values as the backend for the same environment. (Before contract v13 the folder variables were named `PORTFOLIO_OPTIMIZATION_SPACE_NAME` and `TIME_SERIES_SPACE_NAME`; the old names are no longer read.)
+
+## Architecture
+
+The files the backend delivers, and how the app must read them, are specified in the [Interface Contract](INTERFACE_CONTRACT.md). That file is a read-only mirror of the copy in the backend repo. The app requires contract v4 or later data; older files are reported on the dashboard instead of being displayed.
+
+All data lives in one DigitalOcean Space (one S3 bucket) with two top-level folders, one for portfolio optimization and one for time series forecasts. The backend stores each run's files in a date folder inside each, at keys `<folder>/YYYY-MM-DD/<file>`, where the date is the last NYSE trading day in the data. A dropdown at the top of the app lists the dates whose data is complete in both folders, newest first, and selects the newest by default. The list is refreshed on every page load, and the page's two stacked sections, **Timeseries Analysis** (top) and **Portfolio Optimization** (below), show data from the selected date only. Objects directly under a top-level folder (left by older backend versions) are ignored. The read-only access key needs permission to **list** the Space as well as to read objects.
 
 ## Purposes of folders and scripts
 
@@ -97,8 +103,8 @@ Dev and production share the one Space and differ only in the two folder names, 
 | ------------------ | --------------------- | ---------------------------------------------------------------------------------------- |
 | `app.py`           | Yes                   | Run the Fuzzy System Finance Gradio app.                                                 |
 | `s3_downloader.py` | No                    | Lists folders in the Space and downloads data from it for display on the app.            |
-| `data_loading.py`  | No                    | Finds available dates and loads and validates the downloaded files against `INTERFACE_CONTRACT.md`. |
+| `data_loading.py`  | No                    | Finds available dates and loads and validates the downloaded files against the [Interface Contract](INTERFACE_CONTRACT.md). |
 
-## HuggingFace Spaces Docs
+## Hugging Face Spaces Docs
 
 Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference

@@ -33,18 +33,18 @@ This is a hobby project being revised. Planned work spans technical implementati
 
 ## Interface contract
 
-@INTERFACE_CONTRACT.md
+@docs/INTERFACE_CONTRACT.md
 
 The file above is the authoritative spec of what the backend uploads to the S3 buckets and this frontend reads: bucket keys, file formats, YAML keys, HDF5 groups/datasets/attributes, CSV columns, units, annualization, date formats, and the reader requirements this app must meet. When the contract and the existing frontend code disagree, the contract wins; treat the disagreement as a frontend bug to fix (or flag to the human), not as evidence of the real data format.
 
-- **Read-only mirror here.** The backend repo (`fuzzy-system-research`) holds the source of truth, and the copy in this repo must stay byte-for-byte identical to it. Do not edit `INTERFACE_CONTRACT.md` in this repo. If a contract change is needed, draft the proposed change (including the version bump and changelog entry) in your response for the human to apply in the backend repo first and then copy here.
+- **Read-only mirror here.** The backend repo (`fuzzy-system-research`) holds the source of truth, and the copy in this repo (`docs/INTERFACE_CONTRACT.md`) must stay byte-for-byte identical to it. Do not edit `docs/INTERFACE_CONTRACT.md` in this repo. If a contract change is needed, draft the proposed change (including the version bump and changelog entry) in your response for the human to apply in the backend repo first and then copy here.
 - **Build to the contract, not to samples.** Write parsing and display code against the documented schema and the "Reader requirements" section (ignore unknown keys/columns, do not hardcode tickers or array lengths, handle `NaN` and empty cells, show data dates, fail soft, label units). Files in `input/` are useful for checking behavior but are a single snapshot, not the spec.
 - **Check the version.** Note the contract version you are working against in your summary. When the contract changelog marks a change as breaking, review the frontend impact it lists and make sure the app handles it (including detecting older files where the contract describes how).
 - **Be precise with finance labels.** Use the contract's units and terminology in user-facing text (e.g., "annualized (arithmetic)", percent vs. dollars, daily vs. annualized) and show the contract's "not investment advice" disclaimer verbatim **exactly once, at the bottom of the page** (`DISCLAIMER_MD` in `app.py`). Do not repeat it in section text, plot captions, tooltips, or metric descriptions.
 
 ## Cross-repo awareness
 
-- The backend repo is **not** available in this session. Do not guess at its code; for data schemas, rely on `INTERFACE_CONTRACT.md` and nothing else.
+- The backend repo is **not** available in this session. Do not guess at its code; for data schemas, rely on `docs/INTERFACE_CONTRACT.md` and nothing else.
 - Before changing how the app parses or displays downloaded data, check the contract and look at how the existing code reads it. If a change implies a new or altered file, key, column, field, or unit, **list the required backend changes explicitly** for the human to carry over to the backend repo, and say whether the change is additive or breaking under the contract's rules (breaking changes need explicit human approval; prefer an additive alternative).
 - Make loading code tolerant and explicit about schema (clear errors on missing columns or files) rather than silently assuming structure.
 
@@ -57,20 +57,22 @@ The file above is the authoritative spec of what the backend uploads to the S3 b
 | `data_loading.py` | Finds available dates from key listings and loads and validates the downloaded files against the interface contract. Imported by the app, not run standalone. |
 | `tests/` | Pytest tests. They build synthetic files in a temporary folder or use a fake S3 client, and never touch `input/` or the network. |
 | `input/` | Data downloaded from the backend by the app at runtime, in `input/YYYY-MM-DD/` folders. **Off-limits for writes by Claude.** |
-| `INTERFACE_CONTRACT.md` | Authoritative spec of the S3 files the backend delivers. Mirror of the backend repo's copy; **do not edit here**. |
+| `docs/INTERFACE_CONTRACT.md` | Authoritative spec of the S3 files the backend delivers. Mirror of the backend repo's copy; **do not edit here**. |
+| `docs/INSTALLATION_AND_ARCHITECTURE.md` | Engineering documentation: local uv setup, dependency changes, pre-deployment `uv export`, version sync with Hugging Face, environment variables, architecture, and the folders and scripts tables. |
+| `docs/DASHBOARD_GUIDE.md` | Guide to reading the dashboard for the data science/quant audience. Currently placeholders the human will fill in; **do not edit** unless asked. |
 | `pyproject.toml` | Source of truth for dependencies: direct production dependencies, the `dev` dependency group, uv settings, and pytest settings. |
 | `uv.lock` | Exact resolved versions of all packages. Generated by uv (by the human); **never edit by hand**. |
 | `requirements.txt` | Generated from `uv.lock` with `uv export` for Hugging Face Spaces, which installs only from this file. **Never edit by hand.** |
 | `.python-version` | Python version uv uses for local development. |
-| `.pre-commit-config.yaml` | Pre-commit hooks (`uv-lock`, `uv-export`) that keep `uv.lock` and `requirements.txt` in sync on every commit. The `uv-export` arguments must match the export command in the README. The human commits with GitHub Desktop, where these hooks also run. |
-| `README.md` | Doubles as the Hugging Face Spaces config via its YAML frontmatter. |
+| `.pre-commit-config.yaml` | Pre-commit hooks (`uv-lock`, `uv-export`) that keep `uv.lock` and `requirements.txt` in sync on every commit. The `uv-export` arguments must match the export command in `docs/INSTALLATION_AND_ARCHITECTURE.md`. The human commits with GitHub Desktop, where these hooks also run. |
+| `README.md` | Short abstract of the project that links to the docs (see "Documentation" below). Its YAML frontmatter is also the Hugging Face Spaces config. |
 
 Docstrings throughout the Python modules describe current behavior; read them before changing a module and keep them accurate when you change behavior.
 
 ## Environment and configuration
 
 - Python 3.13.5, managed with **uv** (same as the backend repo); the virtual environment is `.venv/`. Development is on macOS; production is Hugging Face Spaces on Debian Linux, so keep file name casing exact (macOS is case-insensitive, Linux is not) and do not rely on macOS-only behavior.
-- **Hugging Face installs only from `requirements.txt`** (on top of the Gradio version from `sdk_version`). It does not read `pyproject.toml` or `uv.lock`. `requirements.txt` is regenerated by the pre-commit hook on commit, or by the human with `uv export --format requirements-txt --no-dev --no-hashes -o requirements.txt` (documented in the README as a pre-deployment step).
+- **Hugging Face installs only from `requirements.txt`** (on top of the Gradio version from `sdk_version`). It does not read `pyproject.toml` or `uv.lock`. `requirements.txt` is regenerated by the pre-commit hook on commit, or by the human with `uv export --format requirements-txt --no-dev --no-hashes -o requirements.txt` (documented in `docs/INSTALLATION_AND_ARCHITECTURE.md` as a pre-deployment step).
 - **Python version:** `python_version` in the README frontmatter and `.python-version` must name the same exact patch version (currently `3.13.5`); change them together. `requires-python` in `pyproject.toml` stays `==3.13.*` and only changes on a minor-version upgrade (which also changes `uv.lock`).
 - Gradio SDK version is pinned in the README frontmatter (`sdk_version`) and must stay consistent with the `gradio==` pin in `pyproject.toml` (and therefore in the exported `requirements.txt`). Treat bumping Gradio as a deliberate change: flag it to the human, note Gradio API differences that may affect the UI code, and update both places together.
 - The README frontmatter (`sdk`, `sdk_version`, `app_file`, etc.) controls the Hugging Face deployment. Edit it carefully and mention any change to it in your summary.
@@ -85,7 +87,13 @@ Docstrings throughout the Python modules describe current behavior; read them be
 ## Working conventions
 
 - **Dependencies:** when adding an import, add the package to `pyproject.toml` (`[project] dependencies` for production, `[dependency-groups] dev` for dev-only). Do not edit `uv.lock` or `requirements.txt`. Then give the human the command to run (`uv sync`, which also updates `uv.lock`), and remind them to commit `pyproject.toml`, `uv.lock`, and `requirements.txt` together; the pre-commit hook regenerates `requirements.txt` if needed. (Alternatively, give the human the `uv add` / `uv add --dev` command instead of editing `pyproject.toml`.) Prefer well-maintained, lightweight packages; the app runs on Hugging Face Spaces.
-- **Documentation:** keep `README.md` current when behavior, scripts, folders, or environment variables change (including the scripts table and the env var list). Write docstrings for new modules, classes, and functions, in the same style as the existing ones.
+- **Documentation:** the docs serve two audiences. The primary one is data science/quant readers; the secondary one is engineers. Put each change in the file for its audience:
+  - `README.md` is an abstract: it hooks quant readers quickly, gives engineers enough to read on, and points each audience to its doc. Keep it short; do not move installation, configuration, or architecture detail back into it. Keep its frontmatter intact and its closing disclaimer in the contract's exact wording.
+  - `docs/INSTALLATION_AND_ARCHITECTURE.md` is where installation and architecture notes go. Keep it current when the setup, dependencies, deployment steps, data flow, scripts, folders, or environment variables change (including the scripts table and the env var list).
+  - `docs/DASHBOARD_GUIDE.md` is the quant guide to the dashboard. Leave it alone unless the human asks; if a UI change makes one of its sections out of date, say so in your summary instead.
+  - Links between these files are relative (`docs/...` from the README; same-folder links within `docs/`). Update them when files move.
+
+  Write docstrings for new modules, classes, and functions, in the same style as the existing ones.
 - **Code style:** match the existing code. Use type hints and small, testable functions; keep data loading, computation, and Gradio UI construction separated so each can be changed independently.
 - **Tests:** you may write or update tests, but you cannot run them. Provide the exact command (`uv run pytest`) and ask the human to run it and share results. Pytest settings live in `[tool.pytest.ini_options]` in `pyproject.toml`; do not add a `pytest.ini`, which would take precedence over them.
 - **Scope:** make focused changes. For larger changes (e.g., restructuring the UI or the data-loading layer), outline the plan and confirm with the human before editing many files.

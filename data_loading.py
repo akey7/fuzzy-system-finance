@@ -1,7 +1,7 @@
 """
 Load and validate the files the backend delivers to the S3 buckets.
 
-Every loader in this module follows INTERFACE_CONTRACT.md (contract version 27)
+Every loader in this module follows docs/INTERFACE_CONTRACT.md (contract version 27)
 and raises DataLoadError with a human-readable message when a file is
 missing, does not parse, predates contract v4, or lacks a required key,
 column, group, or dataset. Anything the contract does not require is ignored,

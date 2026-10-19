@@ -9,7 +9,7 @@ repos:
       # Re-lock when pyproject.toml changes.
       - id: uv-lock
       # Regenerate requirements.txt when uv.lock changes. These arguments must
-      # match the export command documented in README.md.
+      # match the export command documented in docs/INSTALLATION_AND_ARCHITECTURE.md.
       - id: uv-export
         args:
           [
