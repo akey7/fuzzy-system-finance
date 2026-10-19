@@ -2,6 +2,44 @@
 
 ## Architecture
 
+The backend does all the modeling and publishes its results; this app only lists, downloads, validates, and displays them.
+
+```
+ legend: [external]   module.py   ─► data flow
+
+ [fuzzy-system-research]   backend repo; uploads one date folder per run
+            │
+            ▼
+ [DigitalOcean Space]   one bucket (FSF_FRONT_END_BUCKET_NAME), two folders
+   <portfolio optimization folder>/YYYY-MM-DD/
+       optimization_metadata.yml             marker: the date is complete
+       portfolio_optimization_plot_data.h5
+   <time series folder>/YYYY-MM-DD/
+       all_forecasts.csv                     marker
+       all_forecasts_metadata.yml            optional (contract v21+)
+            │
+            ▼
+ app.py   entry point; FSFinance builds the single Gradio page
+   │
+   ├─ 1. LIST      on every page load
+   │      s3_downloader.py   list_keys()        every key per folder, with ETags
+   │      data_loading.py    available_dates()  dates with both markers
+   │                         ─► date dropdown, newest first
+   │
+   ├─ 2. LOAD      when a date is selected, unless already cached
+   │      s3_downloader.py   download_file()    ─► input/YYYY-MM-DD/<file>
+   │      data_loading.py    load_*()           validate against the contract
+   │      in-memory cache shared by all visitors, keyed by date + ETags
+   │
+   └─ 3. DISPLAY   per visitor (selected date and ticker in Gradio state)
+          # Timeseries Analysis      actual, ARIMA, and naive; backend metrics
+          # Portfolio Optimization   frontier, simulated portfolios, weights
+          disclaimer, once at the bottom
+            │
+            ▼
+       [visitor's browser]
+```
+
 The files the backend delivers, and how the app must read them, are specified in the [Interface Contract](INTERFACE_CONTRACT.md). That file is a read-only mirror of the copy in the backend repo. The app requires contract v4 or later data; older files are reported on the dashboard instead of being displayed.
 
 All data lives in one DigitalOcean Space (one S3 bucket) with two top-level folders, one for portfolio optimization and one for time series forecasts. The backend stores each run's files in a date folder inside each, at keys `<folder>/YYYY-MM-DD/<file>`, where the date is the last NYSE trading day in the data. A dropdown at the top of the app lists the dates whose data is complete in both folders, newest first, and selects the newest by default. The list is refreshed on every page load, and the page's two stacked sections, **Timeseries Analysis** (top) and **Portfolio Optimization** (below), show data from the selected date only. Objects directly under a top-level folder (left by older backend versions) are ignored. The read-only access key needs permission to **list** the Space as well as to read objects.
