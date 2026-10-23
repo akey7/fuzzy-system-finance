@@ -1177,10 +1177,11 @@ class FSFinance:
         .dark .live-forecast { background: #4A4220 !important; }
         /* Stretch the live forecast box to the bottom of the plot beside it. */
         .live-forecast { flex-grow: 1 !important; }
-        /* Everything inside the box (heading, text, list) 50% larger. zoom
+        /* Everything inside the box (heading, text, list) 30% larger. zoom
            scales font sizes and spacing together, and only the text's
-           elements are targeted, so the box keeps its size. */
-        .prose.live-forecast > * { zoom: 1.5; }
+           elements are targeted, so the box keeps its size. (1.5 made the
+           text wrap in a half-screen window.) */
+        .prose.live-forecast > * { zoom: 1.3; }
         .methods-accordion .label-wrap > span:first-child {
             font-weight: 700 !important;
         }
