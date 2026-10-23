@@ -60,7 +60,7 @@ ACTUAL_COLOR = "#0072B2"
 ARIMA_COLOR = "#D55E00"
 NAIVE_COLOR = "#999999"
 # Height of the time series plot in pixels (about twice Gradio's default,
-# which was too short once the angled date labels took their space).
+# which looked squat next to the live forecast box).
 TIMESERIES_PLOT_HEIGHT = 480
 ACTUAL_TOOLTIP = "Actual adjusted close"
 NAIVE_TOOLTIP = "Naive: the most recent observed close"
@@ -327,6 +327,32 @@ def date_label(date):
     return f"{date} ({weekday})"
 
 
+def noon_timestamps(dates):
+    """
+    Place each date at noon, for the time series plot's date axis.
+
+    Every price is a market close, so the time of day has no meaning. Noon
+    keeps the calendar date the same in any viewer's time zone from UTC-11
+    to UTC+11, whether the browser reads the timestamp as UTC or as local
+    time, so no close moves to the neighboring day. The timestamps are
+    built from the date text rather than by adding a timedelta, which in
+    pandas 2.3 with NumPy 2.5 raises a deprecation warning.
+
+    Parameters
+    ----------
+    dates : pd.Series
+        Dates (datetime64), with or without a time of day.
+
+    Returns
+    -------
+    pd.Series
+        The same calendar dates at 12:00, indexed like `dates`.
+    """
+    return pd.to_datetime(
+        dates.dt.strftime("%Y-%m-%d") + " 12:00", format="%Y-%m-%d %H:%M"
+    )
+
+
 class FSFinance:
     def __init__(self):
         """
@@ -574,7 +600,7 @@ class FSFinance:
     def friendly_col_name(self, col_name):
         """
         Return a user-friendly version of a column name specifying
-        whether the vlaue is actual or modeled, and if modeled,
+        whether the value is actual or modeled, and if modeled,
         what kind of model it is.
 
         Parameters
@@ -606,8 +632,10 @@ class FSFinance:
         and ARIMA forecasts after a missing close (contract v20), where the
         line joins across the gap. A "Model" column describes each point
         for the tooltip, including each ARIMA forecast's own (p, d, q).
-        Dates are "YYYY-MM-DD" strings with no time of day, because every
-        price is a market close.
+
+        "Date" is a real timestamp so the plot's date axis can thin its
+        labels, with each close placed at noon (see noon_timestamps). "Trading day" is the same date as text with its weekday,
+        e.g. "2026-10-09 (Fri)", for the tooltip.
 
         Parameters
         ----------
@@ -621,7 +649,8 @@ class FSFinance:
         -------
         pd.DataFrame
             DataFrame for plotting with gr.LinePlot(), with columns
-            "Date", "Series", "Adjusted Close ($)", and "Model".
+            "Date", "Series", "Adjusted Close ($)", "Model", and
+            "Trading day".
         """
         arima_col = f"{ticker}{ARIMA_SUFFIX}"
         naive_col = naive_column(forecasts, ticker)
@@ -646,10 +675,10 @@ class FSFinance:
         )
         select_df["Series"] = select_df["Series"].apply(self.friendly_col_name)
         select_df["Adjusted Close ($)"] = select_df["Adjusted Close ($)"].round(2)
-        # Dates as "YYYY-MM-DD" text: every value is a daily close, and
-        # Gradio 5.22 shows time-based x values in tooltips with a time of
-        # day in the viewer's time zone, which would be misleading.
-        select_df["pred_date"] = select_df["pred_date"].dt.strftime("%Y-%m-%d")
+        select_df["Trading day"] = (
+            select_df["pred_date"].dt.strftime("%Y-%m-%d").map(date_label)
+        )
+        select_df["pred_date"] = noon_timestamps(select_df["pred_date"])
         select_df.rename(columns={"pred_date": "Date"}, inplace=True)
         return select_df
 
@@ -694,14 +723,14 @@ class FSFinance:
             title=f"{ticker}: actual close vs. one-day-ahead forecasts",
             x="Date",
             x_title="Date (market close)",
-            # Dates are text categories; ISO dates sort chronologically, and
-            # each trading day gets equal spacing (no weekend gaps).
+            # A time axis, so the plot labels only as many dates as fit,
+            # however long the backtest is. Weekends and NYSE holidays show
+            # as small gaps between points; the lines join across them.
             sort="x",
-            x_label_angle=-45,
             y="Adjusted Close ($)",
             color="Series",
             color_map=color_map,
-            tooltip=["Series", "Model"],
+            tooltip=["Trading day", "Series", "Model"],
             y_lim=[min_value, max_value],
             height=TIMESERIES_PLOT_HEIGHT,
         )
@@ -843,7 +872,7 @@ class FSFinance:
         Returns
         -------
         Figure
-            A Matplotlib Figure object o be displayed on the UI.
+            A Matplotlib Figure object to be displayed on the UI.
         """
         tangency_label = "Capital market line"
         if metadata is not None:
@@ -1099,7 +1128,7 @@ class FSFinance:
         lines = [
             "Each point represents a one-day-ahead forecast of adjusted closing price (US $). Models are refit at "
             "each trading day using a rolling window of historical log returns. Training and model selection use "
-            "only data available before the forecast date, preventing temporal leakage. Historical predictions are  "
+            "only data available before the forecast date, preventing temporal leakage. Historical predictions are "
             "evaluated against subsequently observed prices; the final point represents the next trading day's forecast. ",
             "### How these forecasts are made",
             how,

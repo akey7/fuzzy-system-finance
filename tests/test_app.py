@@ -1,19 +1,47 @@
 """
 Tests for the text helpers in app.py that describe how the forecasts are
-made and scored, and how ARIMA compared with the naive forecast. No Gradio app is built, and nothing under input/ or the network is
-touched.
+made and scored and how ARIMA compared with the naive forecast, and for
+the date conversion behind the time series plot. No Gradio app is built,
+and nothing under input/ or the network is touched.
 """
 
+import warnings
 from types import SimpleNamespace
 
+import pandas as pd
 import pytest
 
 from app import (
     accuracy_verdict,
     metrics_windows_text,
+    noon_timestamps,
     order_selection_text,
     training_window_text,
 )
+
+
+def test_noon_timestamps_keep_calendar_date():
+    # Closes as load_forecasts() gives them (midnight), plus one with a
+    # time of day, out of order and with a non-default index.
+    # All in one format: pandas infers the format from the first string.
+    dates = pd.Series(
+        pd.to_datetime(["2026-10-09 00:00", "2026-10-08 17:00", "2026-10-12 00:00"]),
+        index=[5, 3, 9],
+    )
+    result = noon_timestamps(dates)
+    assert list(result) == list(
+        pd.to_datetime(["2026-10-09 12:00", "2026-10-08 12:00", "2026-10-12 12:00"])
+    )
+    assert list(result.index) == [5, 3, 9]
+
+
+def test_noon_timestamps_raise_no_warnings():
+    # Adding a pd.Timedelta here raised a NumPy DeprecationWarning (generic
+    # timedelta unit) that a future NumPy will turn into an error.
+    dates = pd.Series(pd.to_datetime(["2026-10-08", "2026-10-09"]))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        noon_timestamps(dates)
 
 
 def test_training_window_text_fills_closes():
