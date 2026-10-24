@@ -1208,7 +1208,15 @@ class FSFinance:
                 with gr.Row():
                     if data.metadata is not None:
                         with gr.Column():
-                            gr.DataFrame(value=self.portfolio_weights_df(data.metadata))
+                            weights_df = self.portfolio_weights_df(data.metadata)
+                            # Read-only results. A plain row count (not
+                            # Gradio's default tuple) avoids a deprecation
+                            # warning and is the form Gradio 6 expects.
+                            gr.DataFrame(
+                                value=weights_df,
+                                row_count=len(weights_df),
+                                interactive=False,
+                            )
                         with gr.Column():
                             gr.Markdown(
                                 self.optimization_metadata_markdown(data.metadata)
