@@ -965,8 +965,10 @@ class FSFinance:
         all_forecasts_metadata.yml, in two parts for the two halves of the
         metrics panel: a table of RMSE, MAE, and MAPE for the ARIMA and
         naive forecasts and ARIMA directional accuracy, and a summary of
-        relative MAE, skill, what they mean, and how to read the metrics
-        (metrics_note_markdown). Nothing is computed here;
+        relative MAE, skill, and what they mean, ending with a pointer to
+        the methods accordion below the panel. How to read the metrics
+        (metrics_note_markdown) is in that accordion, to keep the panel
+        short. Nothing is computed here;
         the backend publishes every metric so all surfaces report the same
         numbers.
 
@@ -1024,17 +1026,18 @@ class FSFinance:
             "",
             verdict,
             "",
-            self.metrics_note_markdown(forecasts_metadata),
+            "Click below for a full explanation of training and evaluation of "
+            "the ARIMA and naive forecasts.",
         ]
         return os.linesep.join(lines), os.linesep.join(summary)
 
     def metrics_note_markdown(self, forecasts_metadata):
         """
         Generate the contract's suggested wording for interpreting the
-        forecast accuracy metrics, shown at the end of the summary half of
-        the metrics panel. It names both the training window and the
-        scoring window, read from the metadata, and keeps the contract's
-        sample-size caveat for the latter.
+        forecast accuracy metrics, shown under its own heading at the top of
+        the methods accordion (see timeseries_intro_markdown). It names both
+        the training window and the scoring window, read from the metadata,
+        and keeps the contract's sample-size caveat for the latter.
 
         Parameters
         ----------
@@ -1051,7 +1054,7 @@ class FSFinance:
             return ""
         days = forecasts_metadata.target_trading_days
         return (
-            "**Reading the accuracy metrics.** Accuracy over the last "
+            "Accuracy over the last "
             f"{days} trading days, comparing each forecast with the actual close. "
             "Relative MAE below 1 (skill above 0) means ARIMA's errors were smaller "
             "than the naive forecast's. RMSE and MAE are in dollars per share; MAPE "
@@ -1084,10 +1087,12 @@ class FSFinance:
         """
         Generate the explanatory markdown of the Timeseries Analysis
         section, shown below the metrics panel inside a collapsed accordion
-        (whose label serves as the heading), including the contract's suggested wording on
-        how the forecasts are made, why d = 1, and the naive baseline.
-        Parts about model orders and the naive forecast appear only when
-        the date folder has those columns.
+        (whose label serves as the heading). It starts with how to read the
+        accuracy metrics (metrics_note_markdown; left out when the date has
+        no forecasts metadata), then the contract's suggested wording on how
+        the forecasts are made, why d = 1, and the naive baseline. Parts
+        about model orders and the naive forecast appear only when the date
+        folder has those columns.
 
         Parameters
         ----------
@@ -1095,8 +1100,8 @@ class FSFinance:
             Forecasts from data_loading.load_forecasts().
 
         forecasts_metadata : ForecastsMetadata | None
-            Loaded forecasts metadata, if available, for the training
-            window length and the order selection rule.
+            Loaded forecasts metadata, if available, for the metrics note,
+            the training window length, and the order selection rule.
 
         Returns
         -------
@@ -1125,7 +1130,12 @@ class FSFinance:
             how += f" {selection}"
         if has_orders:
             how += " Hover over a forecast to see the model behind it."
-        lines = [
+        lines = []
+        metrics_note = self.metrics_note_markdown(forecasts_metadata)
+        if metrics_note:
+            lines += ["### Reading the accuracy metrics", metrics_note]
+        lines += [
+            "### Walk-forward forecasts",
             "Each point represents a one-day-ahead forecast of adjusted closing price (US $). Models are refit at "
             "each trading day using a rolling window of historical log returns. Training and model selection use "
             "only data available before the forecast date, preventing temporal leakage. Historical predictions are "
@@ -1205,9 +1215,9 @@ class FSFinance:
             timeseries_as_of_md = gr.Markdown("")
             # The ticker and live forecast beside the plot; then a full-width
             # gray panel with the accuracy table (left half) and the
-            # ARIMA-vs-naive summary followed by how to read the metrics
-            # (right half); then the full-width explanation of the forecasts
-            # and a horizontal rule.
+            # ARIMA-vs-naive summary (right half); then the full-width
+            # accordion explaining how to read the metrics and how the
+            # forecasts are made, and a horizontal rule.
             # equal_height lets the left column match the plot's height, so the
             # live forecast box (flex-grow in the CSS) reaches its bottom.
             # Scales 1:3 give the ticker and live forecast a quarter of the
@@ -1245,10 +1255,10 @@ class FSFinance:
                 with gr.Column(scale=1):
                     metrics_summary_md = gr.Markdown("")
 
-            # The methods text is collapsed by default so it does not push the
-            # Portfolio Optimization section far down the page.
+            # The metrics and methods text is collapsed by default so it does
+            # not push the Portfolio Optimization section far down the page.
             with gr.Accordion(
-                "Click to learn more about walk-forward ARIMA, naive "
+                "Reading the accuracy metrics, walk-forward ARIMA, naive "
                 "forecasting, and out-of-sample evaluation...",
                 open=False,
                 visible=False,
