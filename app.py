@@ -1112,7 +1112,8 @@ class FSFinance:
             font-weight: 700 !important;
         }
         """
-        with gr.Blocks(css=css) as app:
+        # Gradio 6 takes custom CSS in launch(), not in the Blocks constructor.
+        with gr.Blocks() as app:
             # Available dates and marker ETags for this visitor's page load.
             marker_state = gr.State({})
             gr.Markdown(
@@ -1208,7 +1209,15 @@ class FSFinance:
                 with gr.Row():
                     if data.metadata is not None:
                         with gr.Column():
-                            gr.DataFrame(value=self.portfolio_weights_df(data.metadata))
+                            weights_df = self.portfolio_weights_df(data.metadata)
+                            # Read-only results. A plain row count (not
+                            # Gradio's default tuple) avoids a deprecation
+                            # warning and is the form Gradio 6 expects.
+                            gr.DataFrame(
+                                value=weights_df,
+                                row_count=len(weights_df),
+                                interactive=False,
+                            )
                         with gr.Column():
                             gr.Markdown(
                                 self.optimization_metadata_markdown(data.metadata)
@@ -1295,7 +1304,7 @@ class FSFinance:
                 outputs=[metrics_md, metrics_summary_md, summary_panel],
             )
 
-        app.launch()
+        app.launch(css=css)
 
 
 if __name__ == "__main__":
