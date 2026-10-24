@@ -8,7 +8,7 @@ dependencies = [
     "boto3",
     "botocore",
     # Must match `sdk_version` in the README frontmatter.
-    "gradio==5.22.0",
+    "gradio==5.50.0",
     "h5py",
     "matplotlib",
     "numpy",
