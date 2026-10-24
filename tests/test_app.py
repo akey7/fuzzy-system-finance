@@ -77,8 +77,10 @@ def test_metrics_windows_text_other_settings():
 
 
 @pytest.mark.parametrize("relative_mae", [0.981, 0.995, 1.0, 1.019])
-def test_accuracy_verdict_approximately_tied(relative_mae):
-    assert "**approximately tied**" in accuracy_verdict(relative_mae)
+def test_accuracy_verdict_within_two_percent(relative_mae):
+    assert accuracy_verdict(relative_mae) == (
+        "ARIMA's average error was **within 2%** of the naive forecast's."
+    )
 
 
 @pytest.mark.parametrize("relative_mae", [0.5, 0.98])

@@ -64,9 +64,9 @@ NAIVE_COLOR = "#999999"
 TIMESERIES_PLOT_HEIGHT = 480
 ACTUAL_TOOLTIP = "Actual adjusted close"
 NAIVE_TOOLTIP = "Naive: the most recent observed close"
-# Relative MAE strictly inside this band is reported as "approximately tied"
-# with the naive forecast instead of smaller or larger. If you change it, also
-# change "within 2% of 1" in metrics_note_markdown().
+# Relative MAE strictly inside this band is reported as "within 2%" of the
+# naive forecast instead of smaller or larger. If you change it, also change
+# "within 2%" in accuracy_verdict().
 TIED_RELATIVE_MAE_LOW = 0.980
 TIED_RELATIVE_MAE_HIGH = 1.020
 
@@ -221,8 +221,9 @@ def accuracy_verdict(relative_mae):
     forecast's, from the backend's relative MAE (ARIMA MAE ÷ naive MAE).
 
     Values strictly between TIED_RELATIVE_MAE_LOW and TIED_RELATIVE_MAE_HIGH
-    (within 2% of 1, including exactly 1) count as approximately tied, so a
-    tiny difference is not reported as ARIMA winning or losing.
+    (including exactly 1) are reported as ARIMA's average error being
+    within 2% of the naive forecast's, so a tiny difference is not reported
+    as ARIMA winning or losing.
 
     Parameters
     ----------
@@ -237,7 +238,7 @@ def accuracy_verdict(relative_mae):
     if relative_mae is None:
         return "Not enough scored days to compare ARIMA with the naive forecast."
     if TIED_RELATIVE_MAE_LOW < relative_mae < TIED_RELATIVE_MAE_HIGH:
-        return "ARIMA's average error was **approximately tied** with the naive forecast's."
+        return "ARIMA's average error was **within 2%** of the naive forecast's."
     if relative_mae < 1:
         return "ARIMA's average error was **smaller** than the naive forecast's."
     return "ARIMA's average error was **larger** than the naive forecast's."
@@ -1053,8 +1054,7 @@ class FSFinance:
             "**Reading the accuracy metrics.** Accuracy over the last "
             f"{days} trading days, comparing each forecast with the actual close. "
             "Relative MAE below 1 (skill above 0) means ARIMA's errors were smaller "
-            "than the naive forecast's. Values within 2% of 1 are shown as "
-            "approximately tied. RMSE and MAE are in dollars per share; MAPE "
+            "than the naive forecast's. RMSE and MAE are in dollars per share; MAPE "
             "is in percent and can be compared across tickers. Directional accuracy "
             "is the share of days on which ARIMA predicted the direction of the move "
             "correctly; the naive forecast predicts no move, so it has none. "
