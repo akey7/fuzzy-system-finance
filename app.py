@@ -28,7 +28,6 @@ from data_loading import (
     folder_date_warnings,
     forecast_tickers,
     last_actual_date,
-    live_forecast_date,
     load_forecasts,
     load_forecasts_metadata,
     load_optimization_metadata,
@@ -60,7 +59,7 @@ ACTUAL_COLOR = "#0072B2"
 ARIMA_COLOR = "#D55E00"
 NAIVE_COLOR = "#999999"
 # Height of the time series plot in pixels (about twice Gradio's default,
-# which looked squat next to the live forecast box).
+# which looked squat next to the accuracy table).
 TIMESERIES_PLOT_HEIGHT = 480
 ACTUAL_TOOLTIP = "Actual adjusted close"
 NAIVE_TOOLTIP = "Naive: the most recent observed close"
@@ -132,28 +131,6 @@ def arima_model_label(p, d, q):
         f"ARIMA({p}, {d}, {q}) on log prices "
         f"(fit as ARIMA({p}, 0, {q}) on daily log returns)"
     )
-
-
-def arima_short_label(p, d, q):
-    """
-    Short name of the ARIMA model behind one forecast, e.g. "ARIMA(1, 1, 0)".
-
-    Parameters
-    ----------
-    p, d, q : int | pandas.NA
-        The forecast's model orders; missing when not published.
-
-    Returns
-    -------
-    str
-        "ARIMA(p, d, q)" on log prices, "ARIMA(p, 0, q) on log returns" if
-        `d` is not published, or "ARIMA" if no orders are published.
-    """
-    if pd.isna(p) or pd.isna(q):
-        return "ARIMA"
-    if pd.isna(d):
-        return f"ARIMA({p}, 0, {q}) on log returns"
-    return f"ARIMA({p}, {d}, {q})"
 
 
 def training_window_text(training_window_returns):
@@ -925,50 +902,16 @@ class FSFinance:
         ax.legend(fontsize="small")
         return fig
 
-    def live_forecast_markdown(self, forecasts, ticker):
-        """
-        Generate markdown for a ticker's live (next trading day) forecast:
-        the ARIMA forecast with its model orders, and the naive forecast.
-
-        Parameters
-        ----------
-        forecasts : pd.DataFrame
-            Forecasts from data_loading.load_forecasts().
-
-        ticker : str
-            The ticker.
-
-        Returns
-        -------
-        str
-            Markdown string for UI, or an empty string if the forecasts
-            have no live row.
-        """
-        live_date = live_forecast_date(forecasts)
-        if live_date is None:
-            return ""
-        lines = [f"### Live forecast for {live_date.date()}", "Adjusted close, US $:"]
-        arima_value = forecasts.loc[live_date, f"{ticker}{ARIMA_SUFFIX}"]
-        if pd.notna(arima_value):
-            p, d, q = arima_orders(forecasts, ticker).loc[live_date]
-            lines.append(f"- **{arima_short_label(p, d, q)}:** ${arima_value:.2f}")
-        else:
-            lines.append("- **ARIMA:** no forecast (the previous close is missing)")
-        naive_col = naive_column(forecasts, ticker)
-        if naive_col is not None and pd.notna(forecasts.loc[live_date, naive_col]):
-            lines.append(f"- **Naive:** ${forecasts.loc[live_date, naive_col]:.2f}")
-        return os.linesep.join(lines)
-
     def forecast_metrics_markdown(self, forecasts_metadata, unavailable_text, ticker):
         """
         Generate markdown of a ticker's forecast accuracy from
-        all_forecasts_metadata.yml, in two parts for the two halves of the
-        metrics panel: a table of RMSE, MAE, and MAPE for the ARIMA and
-        naive forecasts and ARIMA directional accuracy, and a summary of
-        relative MAE, skill, and what they mean, ending with a pointer to
-        the methods accordion below the panel. How to read the metrics
-        (metrics_note_markdown) is in that accordion, to keep the panel
-        short. Nothing is computed here;
+        all_forecasts_metadata.yml, in two parts: a table of RMSE, MAE, and
+        MAPE for the ARIMA and naive forecasts and ARIMA directional
+        accuracy, shown beside the plot, and a summary of relative MAE,
+        skill, and what they mean, shown in the gray panel below the plot
+        and ending with a pointer to the methods accordion below it. How to
+        read the metrics (metrics_note_markdown) is in that accordion, to
+        keep the panel short. Nothing is computed here;
         the backend publishes every metric so all surfaces report the same
         numbers.
 
@@ -986,8 +929,8 @@ class FSFinance:
         Returns
         -------
         tuple[str, str]
-            Markdown for the table half and for the summary half (empty
-            when there are no metrics).
+            Markdown for the table beside the plot and for the summary
+            panel (empty when there are no metrics).
         """
         lines = ["### Forecast accuracy"]
         if forecasts_metadata is None:
@@ -1172,26 +1115,11 @@ class FSFinance:
         are rebuilt with gr.render() rather than updated in place, because
         updating the value of an existing gr.LinePlot left the chart empty.
         """
-        # Make the accuracy table fill its half of the metrics panel,
-        # highlight the live forecast with a light yellow background (a
-        # muted dark yellow in dark mode, where text is light) that stretches
-        # to the bottom of the plot, and make the methods accordion's label
-        # bold (its size stays the default).
+        # Make the accuracy table fill its half of the row beside the plot,
+        # and make the methods accordion's label bold (its size stays the
+        # default).
         css = """
         .metrics-table table { width: 100% !important; }
-        .live-forecast {
-            background: #FFF7D1 !important;
-            padding: 12px 16px !important;
-            border-radius: 8px;
-        }
-        .dark .live-forecast { background: #4A4220 !important; }
-        /* Stretch the live forecast box to the bottom of the plot beside it. */
-        .live-forecast { flex-grow: 1 !important; }
-        /* Everything inside the box (heading, text, list) 30% larger. zoom
-           scales font sizes and spacing together, and only the text's
-           elements are targeted, so the box keeps its size. (1.5 made the
-           text wrap in a half-screen window.) */
-        .prose.live-forecast > * { zoom: 1.3; }
         .methods-accordion .label-wrap > span:first-child {
             font-weight: 700 !important;
         }
@@ -1213,30 +1141,22 @@ class FSFinance:
             # so these # section headings stay the most prominent.
             gr.Markdown("# Timeseries Analysis")
             timeseries_as_of_md = gr.Markdown("")
-            # The ticker and live forecast beside the plot; then a full-width
-            # gray panel with the accuracy table (left half) and the
-            # ARIMA-vs-naive summary (right half); then the full-width
-            # accordion explaining how to read the metrics and how the
-            # forecasts are made, and a horizontal rule.
-            # equal_height lets the left column match the plot's height, so the
-            # live forecast box (flex-grow in the CSS) reaches its bottom.
-            # Scales 1:3 give the ticker and live forecast a quarter of the
-            # row and the plot the rest. min_width is lowered from Gradio's
-            # default 320 px, which would otherwise keep the left column
-            # wider than a quarter on typical screens.
-            with gr.Row(equal_height=True):
-                with gr.Column(scale=1, min_width=240):
+            # The ticker and the accuracy table (left half) beside the plot
+            # (right half); then a full-width gray panel with the
+            # ARIMA-vs-naive summary; then the full-width accordion explaining
+            # how to read the metrics and how the forecasts are made, and a
+            # horizontal rule.
+            with gr.Row():
+                with gr.Column(scale=1):
                     ticker_dropdown = gr.Dropdown(
                         choices=[],
                         value=None,
                         label="Ticker",
                         visible=False,
                     )
-                    live_forecast_md = gr.Markdown(
-                        "", elem_classes=["live-forecast"], visible=False
-                    )
+                    metrics_md = gr.Markdown("", elem_classes=["metrics-table"])
 
-                with gr.Column(scale=3):
+                with gr.Column(scale=1):
 
                     @gr.render(
                         inputs=[date_dropdown, marker_state, ticker_dropdown],
@@ -1249,11 +1169,10 @@ class FSFinance:
                         ticker = self.resolve_ticker(data.forecasts, ticker)
                         self.timeseries_plot(data.forecasts, ticker)
 
-            with gr.Row(variant="panel", equal_height=False):
-                with gr.Column(scale=1):
-                    metrics_md = gr.Markdown("", elem_classes=["metrics-table"])
-                with gr.Column(scale=1):
-                    metrics_summary_md = gr.Markdown("")
+            # Hidden when there is no summary (no metrics for this date or
+            # ticker), so no empty gray panel shows.
+            with gr.Row(variant="panel", visible=False) as summary_panel:
+                metrics_summary_md = gr.Markdown("")
 
             # The metrics and methods text is collapsed by default so it does
             # not push the Portfolio Optimization section far down the page.
@@ -1354,18 +1273,12 @@ class FSFinance:
             def on_ticker_text(date, markers, ticker):
                 data = self.selected_data(date, markers)
                 if data is None or data.forecasts is None:
-                    return gr.update(value="", visible=False), "", ""
+                    return "", "", gr.update(visible=False)
                 ticker = self.resolve_ticker(data.forecasts, ticker)
                 table_md, summary_md = self.forecast_metrics_markdown(
                     data.forecasts_metadata, data.forecasts_metadata_error, ticker
                 )
-                live_md = self.live_forecast_markdown(data.forecasts, ticker)
-                # Hidden when there is no live row, so no empty yellow box shows.
-                return (
-                    gr.update(value=live_md, visible=bool(live_md)),
-                    table_md,
-                    summary_md,
-                )
+                return table_md, summary_md, gr.update(visible=bool(summary_md))
 
             app.load(
                 on_load,
@@ -1386,7 +1299,7 @@ class FSFinance:
                 triggers=[date_dropdown.change, ticker_dropdown.change],
                 fn=on_ticker_text,
                 inputs=[date_dropdown, marker_state, ticker_dropdown],
-                outputs=[live_forecast_md, metrics_md, metrics_summary_md],
+                outputs=[metrics_md, metrics_summary_md, summary_panel],
             )
 
         app.launch()
