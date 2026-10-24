@@ -1304,6 +1304,7 @@ class FSFinance:
                 outputs=[metrics_md, metrics_summary_md, summary_panel],
             )
 
+        # HF Spaces logs "demo not found in __main__" (no top-level `demo`); harmless.
         app.launch(css=css)
 
 
