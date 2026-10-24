@@ -1112,7 +1112,8 @@ class FSFinance:
             font-weight: 700 !important;
         }
         """
-        with gr.Blocks(css=css) as app:
+        # Gradio 6 takes custom CSS in launch(), not in the Blocks constructor.
+        with gr.Blocks() as app:
             # Available dates and marker ETags for this visitor's page load.
             marker_state = gr.State({})
             gr.Markdown(
@@ -1303,7 +1304,7 @@ class FSFinance:
                 outputs=[metrics_md, metrics_summary_md, summary_panel],
             )
 
-        app.launch()
+        app.launch(css=css)
 
 
 if __name__ == "__main__":

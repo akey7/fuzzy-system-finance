@@ -8,7 +8,7 @@ dependencies = [
     "boto3",
     "botocore",
     # Must match `sdk_version` in the README frontmatter.
-    "gradio==5.50.0",
+    "gradio==6.30.0",
     "h5py",
     "matplotlib",
     "numpy",
@@ -34,8 +34,3 @@ package = false
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-filterwarnings = [
-    # Raised by websockets when Gradio (pinned above) imports it, not by this
-    # app. Remove when a Gradio upgrade stops using websockets.legacy.
-    "ignore:websockets.legacy is deprecated:DeprecationWarning",
-]
