@@ -58,9 +58,11 @@ FORECASTS_METADATA_UNPUBLISHED = (
 ACTUAL_COLOR = "#0072B2"
 ARIMA_COLOR = "#D55E00"
 NAIVE_COLOR = "#999999"
-# Height of the time series plot in pixels (about twice Gradio's default,
-# which looked squat next to the accuracy table).
-TIMESERIES_PLOT_HEIGHT = 480
+# Height of the time series plot in pixels, chosen to roughly match the
+# column beside it (ticker, accuracy table, and summary panel) at typical
+# desktop widths. Gradio plots take a fixed height, so it cannot stretch to
+# that column; the column grows taller when narrow windows wrap its text.
+TIMESERIES_PLOT_HEIGHT = 660
 ACTUAL_TOOLTIP = "Actual adjusted close"
 NAIVE_TOOLTIP = "Naive: the most recent observed close"
 # Relative MAE strictly inside this band is reported as "within 2%" of the
