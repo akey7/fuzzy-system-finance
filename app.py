@@ -908,8 +908,8 @@ class FSFinance:
         all_forecasts_metadata.yml, in two parts: a table of RMSE, MAE, and
         MAPE for the ARIMA and naive forecasts and ARIMA directional
         accuracy, shown beside the plot, and a summary of relative MAE,
-        skill, and what they mean, shown in the gray panel below the plot
-        and ending with a pointer to the methods accordion below it. How to
+        skill, and what they mean, shown in a gray panel under the table
+        and ending with a pointer to the methods accordion below the row. How to
         read the metrics (metrics_note_markdown) is in that accordion, to
         keep the panel short. Nothing is computed here;
         the backend publishes every metric so all surfaces report the same
@@ -1029,7 +1029,7 @@ class FSFinance:
     def timeseries_intro_markdown(self, forecasts, forecasts_metadata):
         """
         Generate the explanatory markdown of the Timeseries Analysis
-        section, shown below the metrics panel inside a collapsed accordion
+        section, shown below the plot and metrics inside a collapsed accordion
         (whose label serves as the heading). It starts with how to read the
         accuracy metrics (metrics_note_markdown; left out when the date has
         no forecasts metadata), then the contract's suggested wording on how
@@ -1115,7 +1115,7 @@ class FSFinance:
         are rebuilt with gr.render() rather than updated in place, because
         updating the value of an existing gr.LinePlot left the chart empty.
         """
-        # Make the accuracy table fill its half of the row beside the plot,
+        # Make the accuracy table fill its third of the row beside the plot,
         # and make the methods accordion's label bold (its size stays the
         # default).
         css = """
@@ -1141,11 +1141,11 @@ class FSFinance:
             # so these # section headings stay the most prominent.
             gr.Markdown("# Timeseries Analysis")
             timeseries_as_of_md = gr.Markdown("")
-            # The ticker and the accuracy table (left half) beside the plot
-            # (right half); then a full-width gray panel with the
-            # ARIMA-vs-naive summary; then the full-width accordion explaining
-            # how to read the metrics and how the forecasts are made, and a
-            # horizontal rule.
+            # The ticker, the accuracy table, and a gray panel with the
+            # ARIMA-vs-naive summary (left third) beside the plot (right two
+            # thirds); then the full-width accordion explaining how to read
+            # the metrics and how the forecasts are made, and a horizontal
+            # rule.
             with gr.Row():
                 with gr.Column(scale=1):
                     ticker_dropdown = gr.Dropdown(
@@ -1155,8 +1155,12 @@ class FSFinance:
                         visible=False,
                     )
                     metrics_md = gr.Markdown("", elem_classes=["metrics-table"])
+                    # Hidden when there is no summary (no metrics for this
+                    # date or ticker), so no empty gray panel shows.
+                    with gr.Column(variant="panel", visible=False) as summary_panel:
+                        metrics_summary_md = gr.Markdown("")
 
-                with gr.Column(scale=1):
+                with gr.Column(scale=2):
 
                     @gr.render(
                         inputs=[date_dropdown, marker_state, ticker_dropdown],
@@ -1168,11 +1172,6 @@ class FSFinance:
                             return
                         ticker = self.resolve_ticker(data.forecasts, ticker)
                         self.timeseries_plot(data.forecasts, ticker)
-
-            # Hidden when there is no summary (no metrics for this date or
-            # ticker), so no empty gray panel shows.
-            with gr.Row(variant="panel", visible=False) as summary_panel:
-                metrics_summary_md = gr.Markdown("")
 
             # The metrics and methods text is collapsed by default so it does
             # not push the Portfolio Optimization section far down the page.
