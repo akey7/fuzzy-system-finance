@@ -27,7 +27,6 @@ from data_loading import (
     clean_weights,
     folder_date_warnings,
     forecast_tickers,
-    last_actual_date,
     load_forecasts,
     load_forecasts_metadata,
     load_optimization_metadata,
@@ -1009,25 +1008,6 @@ class FSFinance:
             + metrics_windows_text(forecasts_metadata.training_window_returns, days)
         )
 
-    def timeseries_as_of_markdown(self, forecasts):
-        """
-        Generate the "Data as of" line shown directly below the Timeseries
-        Analysis heading: the last date with an actual price.
-
-        Parameters
-        ----------
-        forecasts : pd.DataFrame
-            Forecasts from data_loading.load_forecasts().
-
-        Returns
-        -------
-        str
-            String of markdown
-        """
-        as_of = last_actual_date(forecasts)
-        as_of_text = as_of.date() if as_of is not None else "no actual prices yet"
-        return f"## Data as of: {as_of_text}"
-
     def timeseries_intro_markdown(self, forecasts, forecasts_metadata):
         """
         Generate the explanatory markdown of the Timeseries Analysis
@@ -1118,10 +1098,16 @@ class FSFinance:
         updating the value of an existing gr.LinePlot left the chart empty.
         """
         # Make the accuracy table fill its third of the row beside the plot,
-        # and make the methods accordion's label bold (its size stays the
-        # default).
+        # show the date-selection title at the size of the "#" section
+        # headings without making it a heading (those stay the only
+        # top-level headings), and make the methods accordion's label bold
+        # (its size stays the default).
         css = """
         .metrics-table table { width: 100% !important; }
+        .date-title p {
+            font-size: var(--text-xxl) !important;
+            font-weight: var(--prose-header-text-weight, 600) !important;
+        }
         .methods-accordion .label-wrap > span:first-child {
             font-weight: 700 !important;
         }
@@ -1129,6 +1115,10 @@ class FSFinance:
         with gr.Blocks(css=css) as app:
             # Available dates and marker ETags for this visitor's page load.
             marker_state = gr.State({})
+            gr.Markdown(
+                "Select trading day (default is latest available data)",
+                elem_classes=["date-title"],
+            )
             date_dropdown = gr.Dropdown(
                 choices=[],
                 value=None,
@@ -1142,7 +1132,9 @@ class FSFinance:
             # top, Portfolio Optimization below. Inner headings start at ##
             # so these # section headings stay the most prominent.
             gr.Markdown("# Timeseries Analysis")
-            timeseries_as_of_md = gr.Markdown("")
+            # Empty unless the forecasts cannot be loaded. The date is not
+            # repeated here; the date dropdown at the top shows it.
+            timeseries_status_md = gr.Markdown("")
             # The ticker, the accuracy table, and a gray panel with the
             # ARIMA-vs-naive summary (left third) beside the plot (right two
             # thirds); then the full-width accordion explaining how to read
@@ -1264,7 +1256,7 @@ class FSFinance:
                         value=self.resolve_ticker(data.forecasts, ticker),
                         visible=True,
                     ),
-                    self.timeseries_as_of_markdown(data.forecasts),
+                    "",
                     self.timeseries_intro_markdown(
                         data.forecasts, data.forecasts_metadata
                     ),
@@ -1291,7 +1283,7 @@ class FSFinance:
                 outputs=[
                     date_warning_md,
                     ticker_dropdown,
-                    timeseries_as_of_md,
+                    timeseries_status_md,
                     timeseries_intro_md,
                     methods_accordion,
                 ],
