@@ -70,6 +70,36 @@ NAIVE_TOOLTIP = "Naive: the most recent observed close"
 TIED_RELATIVE_MAE_LOW = 0.980
 TIED_RELATIVE_MAE_HIGH = 1.020
 
+# Portfolio optimization plot: the contract's suggested wording (v31), with
+# "risk" in place of "volatility" to match the x-axis label, and the
+# subtitle broken onto two lines at the semicolon.
+PORTFOLIO_PLOT_TITLE = "Mean–Variance Portfolio Optimization"
+PORTFOLIO_PLOT_SUBTITLE_TEMPLATE = (
+    "Expected returns and risk estimated from daily simple returns;\n"
+    "annualized using {periods_per_year} trading days."
+)
+# Subtitle used when annualization.periods_per_year is absent.
+PORTFOLIO_PLOT_SUBTITLE = PORTFOLIO_PLOT_SUBTITLE_TEMPLATE.format(periods_per_year=252)
+RANDOM_PORTFOLIOS_CAPTION = (
+    "Random portfolios are sampled from the same constraints as the optimizer to "
+    "illustrate the feasible region; they are not evidence that the frontier is "
+    "correct."
+)
+# Width and height in inches: room for the square plot area, the titles
+# above it, and the legend to its right. Gradio scales the image to the page
+# width.
+PORTFOLIO_PLOT_SIZE = (9.0, 6.0)
+# Gap in points between the subtitle and the title above it.
+PORTFOLIO_TITLE_GAP = 6
+# Padding in inches that constrained layout keeps around the figure's edges
+# (matplotlib's default is 3/72), so the legend never touches the edge.
+PORTFOLIO_LAYOUT_PAD = 0.1
+# Relative tolerance for treating a capital allocation line point as the max
+# Sharpe ratio point when clipping the line (see capital_allocation_line).
+CAL_TOLERANCE = 1e-9
+# Margin around the plotted data, as a fraction of its range on each axis.
+PORTFOLIO_PLOT_MARGIN = 0.05
+
 
 @dataclass(frozen=True)
 class DateData:
@@ -383,6 +413,226 @@ def noon_timestamps(dates):
     return pd.to_datetime(
         dates.dt.strftime("%Y-%m-%d") + " 12:00", format="%Y-%m-%d %H:%M"
     )
+
+
+def capital_allocation_line(cal_group, max_sharpe_ratio):
+    """
+    Clip the capital allocation line (the `tangency_line` group of the
+    .h5 file) so it runs from (0, risk-free rate) to the max Sharpe ratio
+    point and no further, since portfolios beyond it would need leverage.
+
+    Since contract v31 the backend's line already ends there; date folders
+    written before v31 extend it to the largest efficient-frontier risk.
+    Clipping both is harmless: points with risk below the max Sharpe ratio
+    risk are kept (points within CAL_TOLERANCE of it count as that point),
+    and the line ends exactly at the max Sharpe ratio point. Nothing is
+    extrapolated; the only added point is the max Sharpe ratio point from
+    the file.
+
+    Parameters
+    ----------
+    cal_group : XYData
+        The capital allocation line as stored in the file (the
+        `tangency_line` group, whose name did not change).
+
+    max_sharpe_ratio : XYData
+        The `max_sharpe_ratio` group (one point).
+
+    Returns
+    -------
+    XYData
+        The clipped line, sorted by risk, ending at the max Sharpe ratio
+        point.
+    """
+    x_end = float(max_sharpe_ratio.xs[0])
+    y_end = float(max_sharpe_ratio.ys[0])
+    tolerance = CAL_TOLERANCE * max(1.0, abs(x_end))
+    xs = np.asarray(cal_group.xs, dtype=float)
+    ys = np.asarray(cal_group.ys, dtype=float)
+    keep = np.isfinite(xs) & np.isfinite(ys) & (xs < x_end - tolerance)
+    order = np.argsort(xs[keep], kind="stable")
+    return XYData(
+        xs=np.append(xs[keep][order], x_end),
+        ys=np.append(ys[keep][order], y_end),
+    )
+
+
+def portfolio_plot_subtitle(periods_per_year):
+    """
+    Return the contract's suggested subtitle for the portfolio optimization
+    plot, with the trading days per year read from the metadata.
+
+    Parameters
+    ----------
+    periods_per_year : int | None
+        `annualization.periods_per_year` from optimization_metadata.yml, or
+        None if it is not available.
+
+    Returns
+    -------
+    str
+        The two-line subtitle; it names 252 trading days when
+        periods_per_year is None.
+    """
+    if periods_per_year is None:
+        return PORTFOLIO_PLOT_SUBTITLE
+    return PORTFOLIO_PLOT_SUBTITLE_TEMPLATE.format(periods_per_year=periods_per_year)
+
+
+def portfolio_plot_limits(series):
+    """
+    Compute axis limits that fit the plotted data, so no empty area is left
+    where an unclipped capital allocation line used to extend. NaN points
+    are ignored, and the risk axis always includes 0, where the capital
+    allocation line starts.
+
+    Parameters
+    ----------
+    series : list[XYData]
+        Every series drawn on the plot (the capital allocation line already
+        clipped).
+
+    Returns
+    -------
+    tuple[tuple[float, float], tuple[float, float]]
+        (x limits, y limits), each padded by PORTFOLIO_PLOT_MARGIN of the
+        data's range.
+    """
+    xs = np.concatenate([np.asarray(s.xs, dtype=float) for s in series])
+    ys = np.concatenate([np.asarray(s.ys, dtype=float) for s in series])
+    finite = np.isfinite(xs) & np.isfinite(ys)
+    xs, ys = xs[finite], ys[finite]
+
+    def padded(low, high):
+        margin = PORTFOLIO_PLOT_MARGIN * (high - low) if high > low else 1.0
+        return (float(low - margin), float(high + margin))
+
+    return padded(min(0.0, xs.min()), xs.max()), padded(ys.min(), ys.max())
+
+
+def portfolio_optimization_figure(plot_data, metadata):
+    """
+    Plot the portfolio optimization: the efficient frontier, the capital
+    allocation line clipped at the max Sharpe ratio point, the random
+    portfolios, and the max Sharpe ratio and minimum variance portfolios.
+    All values are annualized (arithmetic) and in percent, used exactly as
+    the files give them. NaN points on the efficient frontier break the
+    line.
+
+    The plot area is square. The title and subtitle are left-aligned with
+    the y-axis: the subtitle is the axes' left title and the title is
+    placed just above it. The data date is not repeated on the figure; the
+    date dropdown at the top of the page shows it. The legend sits right
+    of the axes, with
+    opaque keys so the faint random portfolios are still visible there.
+    The figure uses constrained layout, so the legend and titles fit
+    inside the saved image (Gradio saves it without tight bounding boxes).
+    The figure is created without pyplot, which is not thread-safe.
+
+    Parameters
+    ----------
+    plot_data : dict[str, XYData]
+        Loaded plot data.
+
+    metadata : OptimizationMetadata | None
+        Loaded optimization metadata, for the risk-free rate and the
+        trading days per year. The plot is still drawn without it, with
+        less detailed labels.
+
+    Returns
+    -------
+    Figure
+        A Matplotlib Figure object to be displayed on the UI.
+    """
+    cal_label = "Capital allocation line"
+    if metadata is not None:
+        cal_label += f" (risk-free rate {metadata.risk_free_rate:.2f}%)"
+    cal = capital_allocation_line(
+        plot_data["tangency_line"], plot_data["max_sharpe_ratio"]
+    )
+    fig = Figure(figsize=PORTFOLIO_PLOT_SIZE, layout="constrained")
+    fig.get_layout_engine().set(w_pad=PORTFOLIO_LAYOUT_PAD, h_pad=PORTFOLIO_LAYOUT_PAD)
+    ax = fig.subplots(nrows=1, ncols=1)
+    ax.plot(
+        plot_data["efficient_frontier"].xs,
+        plot_data["efficient_frontier"].ys,
+        c="#009E73",
+        zorder=1,
+        label="Efficient frontier",
+    )
+    ax.plot(cal.xs, cal.ys, c="#F0E442", zorder=1, label=cal_label)
+    ax.scatter(
+        plot_data["simulated_portfolios"].xs,
+        plot_data["simulated_portfolios"].ys,
+        alpha=0.1,
+        s=2,
+        c="#0072B2",
+        zorder=10,
+        label="Random portfolios",
+    )
+    ax.scatter(
+        plot_data["max_sharpe_ratio"].xs,
+        plot_data["max_sharpe_ratio"].ys,
+        c="#CC79A7",
+        marker="*",
+        s=200,
+        zorder=10,
+        label="Max Sharpe ratio portfolio",
+    )
+    ax.scatter(
+        plot_data["min_var_portfolio"].xs,
+        plot_data["min_var_portfolio"].ys,
+        c="#E69F00",
+        zorder=10,
+        label="Minimum variance portfolio",
+    )
+    xlim, ylim = portfolio_plot_limits(
+        [
+            plot_data["efficient_frontier"],
+            cal,
+            plot_data["simulated_portfolios"],
+            plot_data["max_sharpe_ratio"],
+            plot_data["min_var_portfolio"],
+        ]
+    )
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
+    ax.set_box_aspect(1)
+    ax.set_xlabel("Annualized Risk (σ, %)")
+    ax.set_ylabel("Annualized Arithmetic Expected Return (%)")
+    subtitle = ax.set_title(
+        portfolio_plot_subtitle(getattr(metadata, "periods_per_year", None)),
+        loc="left",
+        fontsize="small",
+    )
+    # Anchored to the subtitle's top-left corner, so the title starts at
+    # the y-axis too and never overlaps a two-line subtitle. As an axes
+    # child it is included in the constrained layout.
+    ax.annotate(
+        PORTFOLIO_PLOT_TITLE,
+        xy=(0, 1),
+        xycoords=subtitle,
+        xytext=(0, PORTFOLIO_TITLE_GAP),
+        textcoords="offset points",
+        ha="left",
+        va="bottom",
+        fontsize="large",
+        fontweight="bold",
+    )
+    # Anchored at the axes' top-right corner with a gap in font units, not
+    # a fraction of the axes width: the square aspect resizes the axes
+    # after the layout makes room for the legend, and a width-relative gap
+    # would then push the legend past the figure's edge.
+    legend = ax.legend(
+        loc="upper left",
+        bbox_to_anchor=(1.0, 1.0),
+        borderaxespad=0.8,
+        fontsize="small",
+    )
+    # Only the legend keys; the plotted points keep their transparency.
+    for handle in legend.legend_handles:
+        handle.set_alpha(1.0)
+    return fig
 
 
 class FSFinance:
@@ -914,76 +1164,6 @@ class FSFinance:
         lines += [f"- {warning}" for warning in warnings]
         return os.linesep.join(lines)
 
-    def plot_portfolio_optimization(self, plot_data, metadata):
-        """
-        Plot a figure of the portfolio optimization. All values are
-        annualized (arithmetic) and in percent. NaN points on the
-        efficient frontier (infeasible target returns) break the line.
-        The figure is created without pyplot, which is not thread-safe.
-
-        Parameters
-        ----------
-        plot_data : dict[str, XYData]
-            Loaded plot data.
-
-        metadata : OptimizationMetadata | None
-            Loaded optimization metadata, used to label the risk-free rate.
-
-        Returns
-        -------
-        Figure
-            A Matplotlib Figure object to be displayed on the UI.
-        """
-        tangency_label = "Capital market line"
-        if metadata is not None:
-            tangency_label += f" (risk-free rate {metadata.risk_free_rate:.2f}%)"
-        fig = Figure()
-        ax = fig.subplots(nrows=1, ncols=1)
-        ax.plot(
-            plot_data["efficient_frontier"].xs,
-            plot_data["efficient_frontier"].ys,
-            c="#009E73",
-            zorder=1,
-            label="Efficient frontier",
-        )
-        ax.plot(
-            plot_data["tangency_line"].xs,
-            plot_data["tangency_line"].ys,
-            c="#F0E442",
-            zorder=1,
-            label=tangency_label,
-        )
-        ax.scatter(
-            plot_data["simulated_portfolios"].xs,
-            plot_data["simulated_portfolios"].ys,
-            alpha=0.1,
-            s=2,
-            c="#0072B2",
-            zorder=10,
-            label="Random long-only portfolios",
-        )
-        ax.scatter(
-            plot_data["max_sharpe_ratio"].xs,
-            plot_data["max_sharpe_ratio"].ys,
-            c="#CC79A7",
-            marker="*",
-            s=200,
-            zorder=10,
-            label="Max Sharpe ratio portfolio",
-        )
-        ax.scatter(
-            plot_data["min_var_portfolio"].xs,
-            plot_data["min_var_portfolio"].ys,
-            c="#E69F00",
-            zorder=10,
-            label="Minimum variance portfolio",
-        )
-        ax.set_xlabel("Annualized Risk (σ, %)")
-        ax.set_ylabel("Annualized Return (%)")
-        ax.set_title("Portfolio Optimization (annualized, arithmetic)")
-        ax.legend(fontsize="small")
-        return fig
-
     def forecast_metrics_markdown(self, forecasts_metadata, unavailable_text, ticker):
         """
         Generate markdown of a ticker's forecast accuracy from
@@ -1278,7 +1458,7 @@ class FSFinance:
                 with gr.Row():
                     if data.plot_data is not None:
                         gr.Plot(
-                            self.plot_portfolio_optimization(
+                            portfolio_optimization_figure(
                                 data.plot_data, data.metadata
                             )
                         )
@@ -1286,6 +1466,11 @@ class FSFinance:
                         gr.Markdown(
                             f"**Portfolio plot unavailable.** {data.plot_data_error}"
                         )
+                # The contract's caption for the random portfolios. The
+                # investment-advice disclaimer is not repeated here; it is
+                # shown once, at the bottom of the page.
+                if data.plot_data is not None:
+                    gr.Markdown(f"*{RANDOM_PORTFOLIOS_CAPTION}*")
 
                 with gr.Row():
                     if data.metadata is not None:
