@@ -666,8 +666,9 @@ class FSFinance:
         for the tooltip, including each ARIMA forecast's own (p, d, q).
 
         "Date" is a real timestamp so the plot's date axis can thin its
-        labels, with each close placed at noon (see noon_timestamps). "Trading day" is the same date as text with its weekday,
-        e.g. "2026-10-09 (Fri)", for the tooltip.
+        labels, with each close placed at noon (see noon_timestamps).
+        "Trading day" is the same date as text with its weekday, e.g.
+        "2026-10-09 (Fri)", for the tooltip.
 
         Parameters
         ----------
