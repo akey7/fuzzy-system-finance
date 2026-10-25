@@ -168,6 +168,47 @@ def test_metadata_invalid_yaml(tmp_path):
         load_optimization_metadata(str(path))
 
 
+def test_metadata_min_var_weights_absent_before_v28(tmp_path):
+    metadata = load_optimization_metadata(write_yaml(tmp_path / "m.yml", v7_metadata()))
+    assert metadata.min_var_weights is None
+
+
+def test_metadata_loads_min_var_weights(tmp_path):
+    # Contract v28: same form and floating-point noise as the max Sharpe map.
+    document = v7_metadata()
+    document["min_var_portfolio"]["weights"] = {
+        "FXE": 39.99999999999998,
+        "QQQ": 1.2e-15,
+        "XLE": 60.0,
+    }
+    metadata = load_optimization_metadata(write_yaml(tmp_path / "m.yml", document))
+    assert metadata.min_var_weights == {
+        "FXE": 39.99999999999998,
+        "QQQ": 1.2e-15,
+        "XLE": 60.0,
+    }
+    assert metadata.weights["QQQ"] == 60.00000000000006  # max Sharpe map unchanged
+
+
+@pytest.mark.parametrize("bad_weights", [{}, {"FXE": "lots"}, [1, 2]])
+def test_metadata_ignores_malformed_min_var_weights(tmp_path, bad_weights):
+    # Optional key: a malformed map is ignored and the rest of the file loads.
+    document = v7_metadata()
+    document["min_var_portfolio"]["weights"] = bad_weights
+    metadata = load_optimization_metadata(write_yaml(tmp_path / "m.yml", document))
+    assert metadata.min_var_weights is None
+    assert metadata.min_var.risk == 6.89
+
+
+def test_metadata_rejects_malformed_max_sharpe_weights(tmp_path):
+    # Required key: still an error.
+    document = v7_metadata()
+    document["optimum_portfolio"]["weights"] = {"FXE": "lots"}
+    path = write_yaml(tmp_path / "m.yml", document)
+    with pytest.raises(DataLoadError, match="optimum_portfolio.weights"):
+        load_optimization_metadata(path)
+
+
 def test_clean_weights_zeroes_noise_only():
     cleaned = clean_weights(
         {"FXE": 3.055998668072217e-14, "XLE": 39.99999999999994, "NEG": -1e-9}

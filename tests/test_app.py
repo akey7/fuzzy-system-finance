@@ -1,7 +1,8 @@
 """
 Tests for the text helpers in app.py that describe how the forecasts are
-made and scored and how ARIMA compared with the naive forecast, and for
-the date conversion behind the time series plot. No Gradio app is built,
+made and scored and how ARIMA compared with the naive forecast, for the
+date conversion behind the time series plot, and for the portfolio weights
+table. No Gradio app is built,
 and nothing under input/ or the network is touched.
 """
 
@@ -16,8 +17,45 @@ from app import (
     metrics_windows_text,
     noon_timestamps,
     order_selection_text,
+    portfolio_weights_df,
     training_window_text,
 )
+
+
+def test_portfolio_weights_df_both_portfolios():
+    metadata = SimpleNamespace(
+        weights={"FXE": 3.1e-14, "QQQ": 60.00000000000006, "XLE": 39.99999999999994},
+        min_var_weights={"FXE": 39.99999999999998, "QQQ": 1.2e-15, "XLE": 60.0},
+    )
+    df = portfolio_weights_df(metadata)
+    assert list(df.columns) == ["Ticker", "Max Sharpe Weight", "Min Variance Weight"]
+    # Sorted by max Sharpe weight, then minimum variance weight; noise shown as 0.
+    assert df.values.tolist() == [
+        ["QQQ", "60.00%", "0.00%"],
+        ["XLE", "40.00%", "60.00%"],
+        ["FXE", "0.00%", "40.00%"],
+    ]
+
+
+def test_portfolio_weights_df_before_v28():
+    # No minimum variance weights: no column for them.
+    metadata = SimpleNamespace(
+        weights={"QQQ": 60.0, "XLE": 40.0}, min_var_weights=None
+    )
+    df = portfolio_weights_df(metadata)
+    assert list(df.columns) == ["Ticker", "Max Sharpe Weight"]
+    assert df.values.tolist() == [["QQQ", "60.00%"], ["XLE", "40.00%"]]
+
+
+def test_portfolio_weights_df_ticker_in_one_portfolio_only():
+    metadata = SimpleNamespace(
+        weights={"QQQ": 100.0}, min_var_weights={"QQQ": 70.0, "GLD": 30.0}
+    )
+    df = portfolio_weights_df(metadata)
+    assert df.values.tolist() == [
+        ["QQQ", "100.00%", "70.00%"],
+        ["GLD", "n/a", "30.00%"],
+    ]
 
 
 def test_noon_timestamps_keep_calendar_date():
