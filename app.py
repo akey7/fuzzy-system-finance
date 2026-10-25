@@ -768,11 +768,67 @@ class FSFinance:
         )
         return chart
 
+    def price_history_markdown(self, metadata):
+        """
+        Generate the heading above the weights table stating the price
+        history both portfolios were estimated from.
+
+        Parameters
+        ----------
+        metadata : OptimizationMetadata
+            Loaded optimization metadata.
+
+        Returns
+        -------
+        str
+            A `###` heading, e.g. "### Price history: daily adjusted closes
+            from 2025-10-23 to 2026-10-23".
+        """
+        return (
+            f"### Price history: daily adjusted closes from {metadata.date_from} "
+            f"to {metadata.date_to}"
+        )
+
     def optimization_metadata_markdown(self, metadata):
         """
-        Generate markdown of optimization metadata: data dates, annualized
+        Generate markdown of optimization metadata: annualized
         performance of the maximum Sharpe ratio and minimum variance
-        portfolios, and the assumptions behind them, including how the two
+        portfolios, and how returns are computed. The price history window
+        is shown above the weights table (price_history_markdown) and the
+        assumptions in an accordion below it
+        (optimization_assumptions_markdown).
+
+        Parameters
+        ----------
+        metadata : OptimizationMetadata
+            Loaded optimization metadata.
+
+        Returns
+        -------
+        str
+            String of markdown
+        """
+        m = metadata
+        lines = [
+            "## Maximum Sharpe ratio portfolio",
+            f"- Annualized return: {m.optimum.annualized_return:.2f}%",
+            f"- Annualized risk (σ): {m.optimum.risk:.2f}%",
+            f"- Annualized Sharpe ratio: {m.sharpe_ratio:.2f}",
+            "## Minimum variance portfolio",
+            f"- Annualized return: {m.min_var.annualized_return:.2f}%",
+            f"- Annualized risk (σ): {m.min_var.risk:.2f}%",
+            "## Returns",
+            "- Simple (not log) daily returns, annualized arithmetically: "
+            f"mean daily return × {m.periods_per_year} and daily σ × √{m.periods_per_year}. "
+            "This is not the compounded growth an investor would realize.",
+        ]
+        return os.linesep.join(lines)
+
+    def optimization_assumptions_markdown(self, metadata):
+        """
+        Generate the bullet list of assumptions behind the portfolio
+        optimization, shown in a collapsed accordion below the weights
+        table (whose label serves as the heading). Includes how the two
         portfolios differ when the date has both portfolios' weights
         (contract v28+).
 
@@ -788,21 +844,9 @@ class FSFinance:
         """
         m = metadata
         lines = [
-            f"**Data as of:** {m.date_to}",
-            "## Maximum Sharpe ratio portfolio",
-            f"- Annualized return: {m.optimum.annualized_return:.2f}%",
-            f"- Annualized risk (σ): {m.optimum.risk:.2f}%",
-            f"- Annualized Sharpe ratio: {m.sharpe_ratio:.2f}",
-            "## Minimum variance portfolio",
-            f"- Annualized return: {m.min_var.annualized_return:.2f}%",
-            f"- Annualized risk (σ): {m.min_var.risk:.2f}%",
-            "## Assumptions",
-            f"- **Price history:** daily adjusted closes from {m.date_from} to {m.date_to}. "
-            "Expected returns and covariances are estimated from this window, so the "
-            "optimum is noisy and sensitive to the dates chosen.",
-            "- **Returns:** simple (not log) daily returns, annualized arithmetically: "
-            f"mean daily return × {m.periods_per_year} and daily σ × √{m.periods_per_year}. "
-            "This is not the compounded growth an investor would realize.",
+            "- **Estimation window:** expected returns and covariances are estimated "
+            "from the price history shown above the weights table, so the optimum is "
+            "noisy and sensitive to the dates chosen.",
             f"- **Risk-free rate:** {m.risk_free_rate:.2f}% per year, the 3-month U.S. "
             f"Treasury bill rate (FRED series DTB3) observed {m.risk_free_rate_date}.",
             "- **Sharpe ratio:** (annualized return − risk-free rate) / annualized risk.",
@@ -1136,7 +1180,7 @@ class FSFinance:
         # Make the accuracy table fill its third of the row beside the plot,
         # show the date-selection title at the size of the "#" section
         # headings without making it a heading (those stay the only
-        # top-level headings), and make the methods accordion's label bold
+        # top-level headings), and make the accordions' labels bold
         # (its size stays the default).
         css = """
         .metrics-table table { width: 100% !important; }
@@ -1245,6 +1289,7 @@ class FSFinance:
                 with gr.Row():
                     if data.metadata is not None:
                         with gr.Column():
+                            gr.Markdown(self.price_history_markdown(data.metadata))
                             weights_df = portfolio_weights_df(data.metadata)
                             # Read-only results. A plain row count (not
                             # Gradio's default tuple) avoids a deprecation
@@ -1263,9 +1308,22 @@ class FSFinance:
                             f"**Portfolio summary unavailable.** {data.metadata_error}"
                         )
 
+                # Collapsed like the Timeseries Analysis accordion, and styled
+                # the same way (bold label via the methods-accordion class).
+                if data.metadata is not None:
+                    with gr.Accordion(
+                        "Portfolio optimization assumptions...",
+                        open=False,
+                        elem_classes=["methods-accordion"],
+                    ):
+                        gr.Markdown(
+                            self.optimization_assumptions_markdown(data.metadata)
+                        )
+
             gr.Markdown(
                 f"Data format: interface contract v{CONTRACT_VERSION}. "
-                "Data is updated manually, so check the \"Data as of\" dates."
+                "Data is updated manually, so check the \"Data as of\" date at the top "
+                "of the page."
             )
 
             gr.Markdown(DISCLAIMER_MD)
