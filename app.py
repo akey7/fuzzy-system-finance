@@ -306,6 +306,59 @@ def date_label(date):
     return f"{date} ({weekday})"
 
 
+def portfolio_weights_df(metadata):
+    """
+    Create a table of each ticker's weight in the maximum Sharpe ratio and
+    minimum variance portfolios. Floating-point noise is cleaned (see
+    data_loading.clean_weights) and weights are shown in percent with two
+    decimals. Rows are sorted by max Sharpe weight, then minimum variance
+    weight (both descending), then ticker.
+
+    Dates before contract v28 have no minimum variance weights; the table
+    then has no "Min Variance Weight" column, as the contract asks. A
+    ticker missing from one portfolio's weights shows "n/a" there.
+
+    Parameters
+    ----------
+    metadata : OptimizationMetadata
+        Loaded optimization metadata.
+
+    Returns
+    -------
+    pd.DataFrame
+        Columns "Ticker", "Max Sharpe Weight", and (v28+) "Min Variance
+        Weight", with weights as text such as "22.40%".
+    """
+    max_sharpe = clean_weights(metadata.weights)
+    min_var = (
+        clean_weights(metadata.min_var_weights)
+        if metadata.min_var_weights is not None
+        else None
+    )
+    tickers = list(max_sharpe)
+    if min_var is not None:
+        tickers += [ticker for ticker in min_var if ticker not in max_sharpe]
+    df = pd.DataFrame({"Ticker": tickers})
+    sort_columns = ["max_sharpe"]
+    df["max_sharpe"] = [max_sharpe.get(ticker) for ticker in tickers]
+    if min_var is not None:
+        df["min_var"] = [min_var.get(ticker) for ticker in tickers]
+        sort_columns.append("min_var")
+    df = df.sort_values(
+        by=sort_columns + ["Ticker"],
+        ascending=[False] * len(sort_columns) + [True],
+        na_position="last",
+    ).reset_index(drop=True)
+    # Missing weights are NaN in the column (not None), so check with isna.
+    def as_percent(weight):
+        return "n/a" if pd.isna(weight) else f"{weight:.2f}%"
+
+    df["Max Sharpe Weight"] = df["max_sharpe"].map(as_percent)
+    if min_var is not None:
+        df["Min Variance Weight"] = df["min_var"].map(as_percent)
+    return df.drop(columns=sort_columns)
+
+
 def noon_timestamps(dates):
     """
     Place each date at noon, for the time series plot's date axis.
@@ -715,12 +768,10 @@ class FSFinance:
         )
         return chart
 
-    def portfolio_weights_df(self, metadata):
+    def price_history_markdown(self, metadata):
         """
-        Create a Pandas DataFrame of portfolio tickers and weights of the
-        maximum Sharpe ratio portfolio. Floating-point noise is cleaned
-        (see data_loading.clean_weights) and weights are rounded to two
-        decimals for display.
+        Generate the heading above the weights table stating the price
+        history both portfolios were estimated from.
 
         Parameters
         ----------
@@ -729,25 +780,23 @@ class FSFinance:
 
         Returns
         -------
-        pd.DataFrame
-            DataFrame of tickers and weights in the portfolio.
+        str
+            A `###` heading, e.g. "### Price history: daily adjusted closes
+            from 2025-10-23 to 2026-10-23".
         """
-        df_rows = [
-            {"Ticker": ticker, "Weight": f"{weight:.2f}%", "Numeric Weight": weight}
-            for ticker, weight in clean_weights(metadata.weights).items()
-        ]
-        df = pd.DataFrame(df_rows)
-        df.sort_values(
-            by=["Numeric Weight", "Ticker"], ascending=[False, True], inplace=True
+        return (
+            f"### Price history: daily adjusted closes from {metadata.date_from} "
+            f"to {metadata.date_to}"
         )
-        df.drop("Numeric Weight", axis=1, inplace=True)
-        return df
 
     def optimization_metadata_markdown(self, metadata):
         """
-        Generate markdown of optimization metadata: data dates, annualized
+        Generate markdown of optimization metadata: annualized
         performance of the maximum Sharpe ratio and minimum variance
-        portfolios, and the assumptions behind them.
+        portfolios, and how returns are computed. The price history window
+        is shown above the weights table (price_history_markdown) and the
+        assumptions in an accordion below it
+        (optimization_assumptions_markdown).
 
         Parameters
         ----------
@@ -761,7 +810,6 @@ class FSFinance:
         """
         m = metadata
         lines = [
-            f"**Data as of:** {m.date_to}",
             "## Maximum Sharpe ratio portfolio",
             f"- Annualized return: {m.optimum.annualized_return:.2f}%",
             f"- Annualized risk (σ): {m.optimum.risk:.2f}%",
@@ -769,18 +817,50 @@ class FSFinance:
             "## Minimum variance portfolio",
             f"- Annualized return: {m.min_var.annualized_return:.2f}%",
             f"- Annualized risk (σ): {m.min_var.risk:.2f}%",
-            "## Assumptions",
-            f"- **Price history:** daily adjusted closes from {m.date_from} to {m.date_to}. "
-            "Expected returns and covariances are estimated from this window, so the "
-            "optimum is noisy and sensitive to the dates chosen.",
-            "- **Returns:** simple (not log) daily returns, annualized arithmetically: "
+            "## Returns",
+            "- Simple (not log) daily returns, annualized arithmetically: "
             f"mean daily return × {m.periods_per_year} and daily σ × √{m.periods_per_year}. "
             "This is not the compounded growth an investor would realize.",
+        ]
+        return os.linesep.join(lines)
+
+    def optimization_assumptions_markdown(self, metadata):
+        """
+        Generate the bullet list of assumptions behind the portfolio
+        optimization, shown in a collapsed accordion below the weights
+        table (whose label serves as the heading). Includes how the two
+        portfolios differ when the date has both portfolios' weights
+        (contract v28+).
+
+        Parameters
+        ----------
+        metadata : OptimizationMetadata
+            Loaded optimization metadata.
+
+        Returns
+        -------
+        str
+            String of markdown
+        """
+        m = metadata
+        lines = [
+            "- **Estimation window:** expected returns and covariances are estimated "
+            "from the price history shown above the weights table, so the optimum is "
+            "noisy and sensitive to the dates chosen.",
             f"- **Risk-free rate:** {m.risk_free_rate:.2f}% per year, the 3-month U.S. "
             f"Treasury bill rate (FRED series DTB3) observed {m.risk_free_rate_date}.",
             "- **Sharpe ratio:** (annualized return − risk-free rate) / annualized risk.",
             "- **Weights** are in percent and rounded, so they may not sum to exactly 100%.",
         ]
+        if m.min_var_weights is not None:
+            # The contract's suggested wording near both portfolios' weights.
+            lines.append(
+                "- **Two portfolios:** the minimum variance portfolio uses only the "
+                "estimated covariance of returns, not expected returns, so it is "
+                "usually more stable from one date to the next than the max Sharpe "
+                "portfolio. Both are estimated from about a year of daily data and "
+                "share the same constraints (long-only, capped weights)."
+            )
         return os.linesep.join(lines)
 
     def portfolio_consistency_markdown(self, data):
@@ -1100,7 +1180,7 @@ class FSFinance:
         # Make the accuracy table fill its third of the row beside the plot,
         # show the date-selection title at the size of the "#" section
         # headings without making it a heading (those stay the only
-        # top-level headings), and make the methods accordion's label bold
+        # top-level headings), and make the accordions' labels bold
         # (its size stays the default).
         css = """
         .metrics-table table { width: 100% !important; }
@@ -1209,7 +1289,8 @@ class FSFinance:
                 with gr.Row():
                     if data.metadata is not None:
                         with gr.Column():
-                            weights_df = self.portfolio_weights_df(data.metadata)
+                            gr.Markdown(self.price_history_markdown(data.metadata))
+                            weights_df = portfolio_weights_df(data.metadata)
                             # Read-only results. A plain row count (not
                             # Gradio's default tuple) avoids a deprecation
                             # warning and is the form Gradio 6 expects.
@@ -1227,9 +1308,22 @@ class FSFinance:
                             f"**Portfolio summary unavailable.** {data.metadata_error}"
                         )
 
+                # Collapsed like the Timeseries Analysis accordion, and styled
+                # the same way (bold label via the methods-accordion class).
+                if data.metadata is not None:
+                    with gr.Accordion(
+                        "Portfolio optimization assumptions...",
+                        open=False,
+                        elem_classes=["methods-accordion"],
+                    ):
+                        gr.Markdown(
+                            self.optimization_assumptions_markdown(data.metadata)
+                        )
+
             gr.Markdown(
                 f"Data format: interface contract v{CONTRACT_VERSION}. "
-                "Data is updated manually, so check the \"Data as of\" dates."
+                "Data is updated manually, so check the \"Data as of\" date at the top "
+                "of the page."
             )
 
             gr.Markdown(DISCLAIMER_MD)
@@ -1304,6 +1398,7 @@ class FSFinance:
                 outputs=[metrics_md, metrics_summary_md, summary_panel],
             )
 
+        # HF Spaces logs "demo not found in __main__" (no top-level `demo`); harmless.
         app.launch(css=css)
 
 

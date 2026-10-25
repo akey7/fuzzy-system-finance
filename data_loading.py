@@ -1,7 +1,7 @@
 """
 Load and validate the files the backend delivers to the S3 buckets.
 
-Every loader in this module follows docs/INTERFACE_CONTRACT.md (contract version 27)
+Every loader in this module follows docs/INTERFACE_CONTRACT.md (contract version 30)
 and raises DataLoadError with a human-readable message when a file is
 missing, does not parse, predates contract v4, or lacks a required key,
 column, group, or dataset. Anything the contract does not require is ignored,
@@ -28,7 +28,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-CONTRACT_VERSION = 27
+CONTRACT_VERSION = 30
 
 OPTIMIZATION_METADATA_KEY = "optimization_metadata.yml"
 PLOT_DATA_KEY = "portfolio_optimization_plot_data.h5"
@@ -88,7 +88,10 @@ class OptimizationMetadata:
 
     Returns, risks, and the risk-free rate are annualized and in percent.
     Weights are in percent and are exactly as delivered (including
-    floating-point noise); use clean_weights() before display.
+    floating-point noise); use clean_weights() before display. `weights`
+    belongs to the maximum Sharpe ratio portfolio (`optimum_portfolio` in
+    the file) and `min_var_weights` to the minimum variance portfolio
+    (contract v28+, None for older files).
     """
 
     date_from: str
@@ -97,6 +100,7 @@ class OptimizationMetadata:
     risk_free_rate: float
     risk_free_rate_date: str
     weights: dict[str, float]
+    min_var_weights: dict[str, float] | None
     optimum: PortfolioPoint
     sharpe_ratio: float
     min_var: PortfolioPoint
@@ -382,12 +386,45 @@ def _get_float(
         raise DataLoadError(f"`{file_key}` key `{dotted_path}` is not a number.")
 
 
+def _parse_weights(node, dotted_path: str) -> dict[str, float]:
+    """
+    Validate a portfolio weight map from optimization_metadata.yml.
+
+    Parameters
+    ----------
+    node : Any
+        The parsed `weights` mapping (ticker to weight in percent).
+
+    dotted_path : str
+        Path of the map, used in error messages.
+
+    Returns
+    -------
+    dict[str, float]
+        Ticker to weight in percent, exactly as delivered (floating-point
+        noise included; see clean_weights()).
+    """
+    if not isinstance(node, dict) or not node:
+        raise DataLoadError(
+            f"`{OPTIMIZATION_METADATA_KEY}` key `{dotted_path}` is empty."
+        )
+    try:
+        return {str(ticker): float(weight) for ticker, weight in node.items()}
+    except (TypeError, ValueError):
+        raise DataLoadError(
+            f"`{OPTIMIZATION_METADATA_KEY}` key `{dotted_path}` has a non-numeric weight."
+        )
+
+
 def load_optimization_metadata(path: str) -> OptimizationMetadata:
     """
     Load and validate optimization_metadata.yml.
 
     Files without an `annualization` key predate contract v4 (compounded
     return, no Sharpe ratio or minimum variance portfolio) and are rejected.
+    The minimum variance portfolio's weights (contract v28) are optional:
+    they are None when absent (older files) and, if malformed, ignored
+    with a console message so the rest of the file can still be shown.
 
     Parameters
     ----------
@@ -413,19 +450,20 @@ def load_optimization_metadata(path: str) -> OptimizationMetadata:
         )
 
     tickers = _get(document, "tickers")
-    weights = _get(document, "optimum_portfolio.weights")
     if not isinstance(tickers, list) or not tickers:
         raise DataLoadError(f"`{OPTIMIZATION_METADATA_KEY}` key `tickers` is empty.")
-    if not isinstance(weights, dict) or not weights:
-        raise DataLoadError(
-            f"`{OPTIMIZATION_METADATA_KEY}` key `optimum_portfolio.weights` is empty."
-        )
-    try:
-        weights = {str(ticker): float(weight) for ticker, weight in weights.items()}
-    except (TypeError, ValueError):
-        raise DataLoadError(
-            f"`{OPTIMIZATION_METADATA_KEY}` has a non-numeric portfolio weight."
-        )
+    weights = _parse_weights(
+        _get(document, "optimum_portfolio.weights"), "optimum_portfolio.weights"
+    )
+    min_var_weights = None
+    min_var_node = document.get("min_var_portfolio")
+    if isinstance(min_var_node, dict) and "weights" in min_var_node:
+        try:
+            min_var_weights = _parse_weights(
+                min_var_node["weights"], "min_var_portfolio.weights"
+            )
+        except DataLoadError as error:
+            print(f"Ignoring optional minimum variance weights: {error}")
 
     return OptimizationMetadata(
         date_from=str(_get(document, "date_updated.date_from")),
@@ -436,6 +474,7 @@ def load_optimization_metadata(path: str) -> OptimizationMetadata:
             :10
         ],
         weights=weights,
+        min_var_weights=min_var_weights,
         optimum=PortfolioPoint(
             annualized_return=_get_float(
                 document, "optimum_portfolio.annualized_return"
