@@ -1639,7 +1639,8 @@ class FSFinance:
         """
         Run the Gradio app.
 
-        The page is a single column: the date dropdown, then the Timeseries
+        The page is a single column: the date dropdown and the individual
+        assets accordion, then the Timeseries
         Analysis section, then the Portfolio Optimization section, each under
         a `#` heading. On every page load the available dates are listed and
         the newest is selected. Changing the date reloads both sections from
@@ -1667,7 +1668,8 @@ class FSFinance:
             # Available dates and marker ETags for this visitor's page load.
             marker_state = gr.State({})
             gr.Markdown(
-                "Select trading day (default is latest available data)",
+                "Trading day selection (default is most recent day) and individual "
+                "asset information",
                 elem_classes=["date-title"],
             )
             date_dropdown = gr.Dropdown(
@@ -1678,6 +1680,37 @@ class FSFinance:
             )
             listing_md = gr.Markdown("")
             date_warning_md = gr.Markdown("")
+
+            # Each ticker held on its own (contract v32), under the date
+            # selector because it concerns both sections. A table rather
+            # than points on the portfolio plot: under a binding weight cap
+            # single tickers are not feasible portfolios. Numeric columns, so
+            # clicking a header sorts by value. Collapsed and styled like the
+            # other accordions; its label serves as the heading. Absent for
+            # dates before v32 or without optimization metadata.
+            @gr.render(
+                inputs=[date_dropdown, marker_state],
+                triggers=[date_dropdown.change],
+            )
+            def render_assets(date, markers):
+                data = self.selected_data(date, markers)
+                if data is None or data.metadata is None:
+                    return
+                assets = assets_df(data.metadata)
+                if assets is None:
+                    return
+                with gr.Accordion(
+                    "Information about individual assets...",
+                    open=False,
+                    elem_classes=["methods-accordion"],
+                ):
+                    gr.Markdown(assets_caption_markdown(data.metadata.constraints))
+                    gr.DataFrame(
+                        value=assets,
+                        datatype=["str", "number", "number"],
+                        row_count=len(assets),
+                        interactive=False,
+                    )
 
             # Both sections are stacked on one page: Timeseries Analysis on
             # top, Portfolio Optimization below. Inner headings start at ##
@@ -1782,21 +1815,6 @@ class FSFinance:
                         gr.Markdown(
                             f"**Portfolio summary unavailable.** {data.metadata_error}"
                         )
-
-                # Each ticker held on its own (contract v32), in a table
-                # rather than on the plot: under a binding weight cap single
-                # tickers are not feasible portfolios. Numeric columns, so
-                # clicking a header sorts by value.
-                assets = assets_df(data.metadata) if data.metadata is not None else None
-                if assets is not None:
-                    gr.Markdown("### Individual assets")
-                    gr.Markdown(assets_caption_markdown(data.metadata.constraints))
-                    gr.DataFrame(
-                        value=assets,
-                        datatype=["str", "number", "number"],
-                        row_count=len(assets),
-                        interactive=False,
-                    )
 
                 # Collapsed like the Timeseries Analysis accordion, and styled
                 # the same way (bold label via the methods-accordion class).
