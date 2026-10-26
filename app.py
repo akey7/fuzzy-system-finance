@@ -70,9 +70,9 @@ NAIVE_TOOLTIP = "Naive: the most recent observed close"
 TIED_RELATIVE_MAE_LOW = 0.980
 TIED_RELATIVE_MAE_HIGH = 1.020
 
-# Portfolio optimization plot: the contract's suggested wording (v31), with
-# the subtitle broken onto two lines at the semicolon. The x-axis says
-# "volatility" to match the subtitle.
+# Portfolio optimization plot: the contract's suggested wording (v33), with
+# the subtitle broken onto two lines at the semicolon. The contract calls the
+# standard deviation of returns "volatility"; its `risk` keys hold it.
 PORTFOLIO_PLOT_TITLE = "Mean–Variance Portfolio Optimization"
 PORTFOLIO_PLOT_X_LABEL = "Annualized Volatility (σ, %)"
 PORTFOLIO_PLOT_SUBTITLE_TEMPLATE = (
