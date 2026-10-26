@@ -71,11 +71,12 @@ TIED_RELATIVE_MAE_LOW = 0.980
 TIED_RELATIVE_MAE_HIGH = 1.020
 
 # Portfolio optimization plot: the contract's suggested wording (v31), with
-# "risk" in place of "volatility" to match the x-axis label, and the
-# subtitle broken onto two lines at the semicolon.
+# the subtitle broken onto two lines at the semicolon. The x-axis says
+# "volatility" to match the subtitle.
 PORTFOLIO_PLOT_TITLE = "Mean–Variance Portfolio Optimization"
+PORTFOLIO_PLOT_X_LABEL = "Annualized Volatility (σ, %)"
 PORTFOLIO_PLOT_SUBTITLE_TEMPLATE = (
-    "Expected returns and risk estimated from daily simple returns;\n"
+    "Expected returns and volatility estimated from daily simple returns;\n"
     "annualized using {periods_per_year} trading days."
 )
 # Subtitle used when annualization.periods_per_year is absent.
@@ -598,7 +599,7 @@ def portfolio_optimization_figure(plot_data, metadata):
     ax.set_xlim(xlim)
     ax.set_ylim(ylim)
     ax.set_box_aspect(1)
-    ax.set_xlabel("Annualized Risk (σ, %)")
+    ax.set_xlabel(PORTFOLIO_PLOT_X_LABEL)
     ax.set_ylabel("Annualized Arithmetic Expected Return (%)")
     subtitle = ax.set_title(
         portfolio_plot_subtitle(getattr(metadata, "periods_per_year", None)),
@@ -1063,11 +1064,11 @@ class FSFinance:
         lines = [
             "## Maximum Sharpe ratio portfolio",
             f"- Annualized return: {m.optimum.annualized_return:.2f}%",
-            f"- Annualized risk (σ): {m.optimum.risk:.2f}%",
+            f"- Annualized volatility (σ): {m.optimum.risk:.2f}%",
             f"- Annualized Sharpe ratio: {m.sharpe_ratio:.2f}",
             "## Minimum variance portfolio",
             f"- Annualized return: {m.min_var.annualized_return:.2f}%",
-            f"- Annualized risk (σ): {m.min_var.risk:.2f}%",
+            f"- Annualized volatility (σ): {m.min_var.risk:.2f}%",
             "## Returns",
             "- Simple (not log) daily returns, annualized arithmetically: "
             f"mean daily return × {m.periods_per_year} and daily σ × √{m.periods_per_year}. "
@@ -1100,7 +1101,7 @@ class FSFinance:
             "noisy and sensitive to the dates chosen.",
             f"- **Risk-free rate:** {m.risk_free_rate:.2f}% per year, the 3-month U.S. "
             f"Treasury bill rate (FRED series DTB3) observed {m.risk_free_rate_date}.",
-            "- **Sharpe ratio:** (annualized return − risk-free rate) / annualized risk.",
+            "- **Sharpe ratio:** (annualized return − risk-free rate) / annualized volatility.",
             "- **Weights** are in percent and rounded, so they may not sum to exactly 100%.",
         ]
         if m.min_var_weights is not None:

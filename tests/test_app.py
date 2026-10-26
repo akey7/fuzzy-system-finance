@@ -188,11 +188,11 @@ def test_plot_titles_axes_and_legend_labels():
     assert title_text(ax).get_text() == "Mean–Variance Portfolio Optimization"
     # Two lines, split at the semicolon; no data date on the figure.
     assert ax.get_title(loc="left") == (
-        "Expected returns and risk estimated from daily simple returns;\n"
+        "Expected returns and volatility estimated from daily simple returns;\n"
         "annualized using 252 trading days."
     )
     assert "Data as of" not in ax.get_title(loc="left")
-    assert ax.get_xlabel() == "Annualized Risk (σ, %)"
+    assert ax.get_xlabel() == "Annualized Volatility (σ, %)"
     assert ax.get_ylabel() == "Annualized Arithmetic Expected Return (%)"
     labels = [text.get_text() for text in ax.get_legend().get_texts()]
     assert labels == [
@@ -227,7 +227,7 @@ def test_plot_without_metadata():
 
 def test_portfolio_plot_subtitle():
     assert portfolio_plot_subtitle(None) == (
-        "Expected returns and risk estimated from daily simple returns;\n"
+        "Expected returns and volatility estimated from daily simple returns;\n"
         "annualized using 252 trading days."
     )
     assert portfolio_plot_subtitle(260).endswith("annualized using 260 trading days.")
