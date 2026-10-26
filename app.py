@@ -584,6 +584,36 @@ def random_sampling_markdown(metadata):
     return os.linesep.join(lines)
 
 
+def standalone_random_sampling_markdown(plot_shown, metadata):
+    """
+    Return the random portfolio caption to show directly under the plot
+    when the assumptions accordion, which normally holds it, is absent.
+
+    The contract (v34) requires the caption whenever the plot is shown,
+    either near it or in a collapsible section attached to it. The
+    accordion is built only when optimization_metadata.yml loads, so if the
+    plot loads without it, the caption goes under the plot instead
+    (random_sampling_markdown without metadata gives just the caption).
+
+    Parameters
+    ----------
+    plot_shown : bool
+        True if the portfolio plot (and so its random portfolios) is shown.
+
+    metadata : OptimizationMetadata | None
+        Loaded optimization metadata, if available.
+
+    Returns
+    -------
+    str
+        The "Random portfolio sampling" markdown, or an empty string when
+        the plot is not shown or the accordion will hold the caption.
+    """
+    if not plot_shown or metadata is not None:
+        return ""
+    return random_sampling_markdown(None)
+
+
 def random_portfolios_details_markdown(metadata):
     """
     Generate the random portfolio details shown at the end of the
@@ -1788,6 +1818,14 @@ class FSFinance:
                         gr.Markdown(
                             f"**Portfolio plot unavailable.** {data.plot_data_error}"
                         )
+                # The random portfolio caption must accompany the plot; it is
+                # normally in the assumptions accordion, which needs the
+                # metadata, so it goes here when the metadata did not load.
+                caption_md = standalone_random_sampling_markdown(
+                    data.plot_data is not None, data.metadata
+                )
+                if caption_md:
+                    gr.Markdown(caption_md)
 
                 with gr.Row():
                     if data.metadata is not None:

@@ -39,6 +39,7 @@ from app import (
     near_frontier_sentence,
     random_portfolios_details_markdown,
     random_sampling_markdown,
+    standalone_random_sampling_markdown,
 )
 from data_loading import (
     MaxReturnPortfolio,
@@ -535,6 +536,23 @@ def test_random_sampling_markdown_keeps_illustrative_caption():
             "### Random portfolio sampling",
             RANDOM_PORTFOLIOS_CAPTION,
         ]
+
+
+def test_standalone_caption_when_plot_has_no_metadata():
+    # Contract v34: the caption must accompany the plot. Without metadata
+    # there is no assumptions accordion, so it goes under the plot.
+    assert standalone_random_sampling_markdown(True, None).splitlines() == [
+        "### Random portfolio sampling",
+        RANDOM_PORTFOLIOS_CAPTION,
+    ]
+
+
+def test_no_standalone_caption_otherwise():
+    # With metadata the accordion holds it; without the plot there are no
+    # random portfolios to describe.
+    assert standalone_random_sampling_markdown(True, v32_namespace()) == ""
+    assert standalone_random_sampling_markdown(False, None) == ""
+    assert standalone_random_sampling_markdown(False, v32_namespace()) == ""
 
 
 def assumptions_markdown(metadata, show_random_sampling):
