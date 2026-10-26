@@ -2,8 +2,10 @@
 Tests for the text helpers in app.py that describe how the forecasts are
 made and scored and how ARIMA compared with the naive forecast, for the
 date conversion behind the time series plot, for the portfolio weights
-table, and for the portfolio optimization plot (capital allocation line
-clipping, NaN frontier points, legend placement, and labels). No Gradio
+table, for the portfolio optimization plot (capital allocation line
+clipping, NaN frontier points, legend placement, labels, and the maximum
+return marker), and for the text and tables built from the contract v32
+portfolio sections (assets, constraints, random portfolios). No Gradio
 app is built, and nothing under input/ or the network is touched.
 """
 
@@ -29,7 +31,21 @@ from app import (
     portfolio_weights_df,
     training_window_text,
 )
-from data_loading import XYData
+from app import (
+    assets_caption_markdown,
+    assets_df,
+    constraints_markdown,
+    near_frontier_sentence,
+    portfolio_caption_markdown,
+    random_portfolios_details_markdown,
+)
+from data_loading import (
+    MaxReturnPortfolio,
+    PortfolioConstraints,
+    PortfolioPoint,
+    RandomPortfolioStats,
+    XYData,
+)
 
 RISK_FREE_RATE = 4.04
 SHARPE_RATIO = 2.44
@@ -246,6 +262,7 @@ def test_portfolio_weights_df_both_portfolios():
     metadata = SimpleNamespace(
         weights={"FXE": 3.1e-14, "QQQ": 60.00000000000006, "XLE": 39.99999999999994},
         min_var_weights={"FXE": 39.99999999999998, "QQQ": 1.2e-15, "XLE": 60.0},
+        max_return=None,
     )
     df = portfolio_weights_df(metadata)
     assert list(df.columns) == ["Ticker", "Max Sharpe Weight", "Min Variance Weight"]
@@ -260,7 +277,7 @@ def test_portfolio_weights_df_both_portfolios():
 def test_portfolio_weights_df_before_v28():
     # No minimum variance weights: no column for them.
     metadata = SimpleNamespace(
-        weights={"QQQ": 60.0, "XLE": 40.0}, min_var_weights=None
+        weights={"QQQ": 60.0, "XLE": 40.0}, min_var_weights=None, max_return=None
     )
     df = portfolio_weights_df(metadata)
     assert list(df.columns) == ["Ticker", "Max Sharpe Weight"]
@@ -269,7 +286,9 @@ def test_portfolio_weights_df_before_v28():
 
 def test_portfolio_weights_df_ticker_in_one_portfolio_only():
     metadata = SimpleNamespace(
-        weights={"QQQ": 100.0}, min_var_weights={"QQQ": 70.0, "GLD": 30.0}
+        weights={"QQQ": 100.0},
+        min_var_weights={"QQQ": 70.0, "GLD": 30.0},
+        max_return=None,
     )
     df = portfolio_weights_df(metadata)
     assert df.values.tolist() == [
@@ -379,3 +398,168 @@ def test_order_selection_text_absent():
     fm = SimpleNamespace(arima_order_selection=None, arima_order_selection_tie_break=None)
     assert order_selection_text(fm) == ""
     assert order_selection_text(None) == ""
+
+
+# Contract v32 portfolio sections
+
+
+def random_stats(share=0.0004, tolerance=1.0):
+    """Random portfolio statistics like the contract's v32 example."""
+    return RandomPortfolioStats(
+        count=10000,
+        max_annualized_return=32.2,
+        mean_annualized_return=11.3,
+        equal_weight_annualized_return=11.2,
+        return_std=5.9,
+        return_std_uniform_without_cap=6.4,
+        near_frontier_tolerance=tolerance,
+        near_frontier_share=share,
+    )
+
+
+MAX_RETURN = MaxReturnPortfolio(
+    point=PortfolioPoint(annualized_return=50.0, risk=35.0),
+    weights={"FXE": 1e-15, "QQQ": 60.0, "XLE": 39.99999999999998},
+)
+CAPPED = PortfolioConstraints(
+    long_only=True, fully_invested=True, weight_cap=40.00000000000001
+)
+UNCAPPED = PortfolioConstraints(long_only=True, fully_invested=True, weight_cap=100.0)
+
+
+def v32_namespace(**overrides):
+    """Metadata with every v32 section, for the app's text helpers."""
+    values = dict(
+        weights={"FXE": 3.1e-14, "QQQ": 60.00000000000006, "XLE": 39.99999999999994},
+        min_var_weights={"FXE": 39.99999999999998, "QQQ": 1.2e-15, "XLE": 60.0},
+        max_return=MAX_RETURN,
+        assets={
+            "FXE": PortfolioPoint(annualized_return=-2.104, risk=7.4567),
+            "XLE": PortfolioPoint(annualized_return=38.9, risk=19.4),
+            "QQQ": PortfolioPoint(annualized_return=30.2, risk=18.0),
+        },
+        constraints=CAPPED,
+        random_portfolios=random_stats(),
+    )
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def test_portfolio_weights_df_with_max_return():
+    df = portfolio_weights_df(v32_namespace())
+    assert list(df.columns) == [
+        "Ticker",
+        "Max Sharpe Weight",
+        "Min Variance Weight",
+        "Max Return Weight",
+    ]
+    # Noise (1e-15) shown as zero, and the cap's 39.99999999999998 rounded.
+    assert df.values.tolist() == [
+        ["QQQ", "60.00%", "0.00%", "60.00%"],
+        ["XLE", "40.00%", "60.00%", "40.00%"],
+        ["FXE", "0.00%", "40.00%", "0.00%"],
+    ]
+
+
+def test_assets_df_numeric_and_sorted_by_return():
+    df = assets_df(v32_namespace())
+    assert list(df.columns) == [
+        "Ticker",
+        "Annualized return (%)",
+        "Annualized volatility (σ, %)",
+    ]
+    assert df.values.tolist() == [
+        ["XLE", 38.9, 19.4],
+        ["QQQ", 30.2, 18.0],
+        ["FXE", -2.1, 7.46],
+    ]
+    # Numbers, not text, so the table sorts by value in the browser.
+    assert pd.api.types.is_float_dtype(df["Annualized return (%)"])
+
+
+def test_assets_df_absent_before_v32():
+    assert assets_df(v32_namespace(assets=None)) is None
+
+
+def test_constraints_markdown():
+    assert constraints_markdown(CAPPED) == (
+        "**Constraints:** long-only (no short positions), fully invested (weights "
+        "sum to 100%), at most 40.0% in any one ticker."
+    )
+    assert constraints_markdown(UNCAPPED).endswith("no binding per-ticker weight cap.")
+    assert constraints_markdown(None) == ""
+
+
+def test_assets_caption_depends_on_cap():
+    capped = assets_caption_markdown(CAPPED)
+    assert "With at most 40.0% allowed in any one ticker" in capped
+    assert "not a feasible portfolio" in capped
+    for constraints in (UNCAPPED, None):
+        caption = assets_caption_markdown(constraints)
+        assert "not a feasible portfolio" not in caption
+        assert "for reference" in caption
+
+
+def test_near_frontier_sentence_tiny_share():
+    # 0.0004 is 0.04%, which would round to 0.0%.
+    assert near_frontier_sentence(random_stats()) == (
+        "Less than 0.1% of the 10,000 random portfolios lie within 1 percentage "
+        "point of the efficient frontier. Uniform draws cluster around the "
+        "equal-weight portfolio and rarely reach the corners of the constraint "
+        "set, where the frontier's high-return portfolios are."
+    )
+
+
+def test_near_frontier_sentence_other_shares():
+    assert near_frontier_sentence(random_stats(share=0.1234, tolerance=0.5)).startswith(
+        "Only 12.3% of the 10,000 random portfolios lie within 0.5 percentage points"
+    )
+    assert near_frontier_sentence(random_stats(share=0.0)).startswith(
+        "None of the 10,000 random portfolios"
+    )
+    assert near_frontier_sentence(None) == ""
+
+
+def test_portfolio_caption_keeps_illustrative_caption():
+    v32 = portfolio_caption_markdown(v32_namespace())
+    assert v32.startswith(f"*{RANDOM_PORTFOLIOS_CAPTION} Less than 0.1%")
+    assert v32.endswith("*")
+    # Before v32, or without metadata: only the illustrative caption.
+    pre_v32 = f"*{RANDOM_PORTFOLIOS_CAPTION}*"
+    assert portfolio_caption_markdown(v32_namespace(random_portfolios=None)) == pre_v32
+    assert portfolio_caption_markdown(None) == pre_v32
+
+
+def test_random_portfolios_details_markdown():
+    text = random_portfolios_details_markdown(v32_namespace())
+    assert "**Count:** 10,000 random portfolios" in text
+    assert "32.20% among the random portfolios, vs. 50.00% for the maximum return" in text
+    assert "11.30% for the random portfolios, vs. 11.20% for the equal-weight" in text
+    assert "5.90 percentage points, vs. 6.40 expected" in text
+    assert "annualized (arithmetic), in percent" in text
+    assert "investment" not in text.lower()
+    # Without the maximum return portfolio, no comparison is made.
+    no_max = random_portfolios_details_markdown(v32_namespace(max_return=None))
+    assert "maximum return portfolio" not in no_max
+    assert random_portfolios_details_markdown(v32_namespace(random_portfolios=None)) == ""
+
+
+def test_plot_marks_max_return_portfolio():
+    metadata = SimpleNamespace(
+        risk_free_rate=RISK_FREE_RATE, periods_per_year=252, max_return=MAX_RETURN
+    )
+    fig = portfolio_optimization_figure(plot_data(MAX_SHARPE_X), metadata)
+    ax = fig.axes[0]
+    labels = [text.get_text() for text in ax.get_legend().get_texts()]
+    assert labels[-1] == "Maximum return portfolio"
+    marker = [c for c in ax.collections if c.get_label() == "Maximum return portfolio"]
+    assert len(marker) == 1
+    assert marker[0].get_offsets().tolist() == [[35.0, 50.0]]
+    # The axis limits include the marker, which lies beyond the other data.
+    assert ax.get_xlim()[1] > 35.0 and ax.get_ylim()[1] > 50.0
+
+
+def test_plot_without_max_return_portfolio():
+    fig = portfolio_optimization_figure(plot_data(MAX_SHARPE_X), METADATA)
+    labels = [text.get_text() for text in fig.axes[0].get_legend().get_texts()]
+    assert "Maximum return portfolio" not in labels

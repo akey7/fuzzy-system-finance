@@ -1,7 +1,7 @@
 """
 Load and validate the files the backend delivers to the S3 buckets.
 
-Every loader in this module follows docs/INTERFACE_CONTRACT.md (contract version 31)
+Every loader in this module follows docs/INTERFACE_CONTRACT.md (contract version 32)
 and raises DataLoadError with a human-readable message when a file is
 missing, does not parse, predates contract v4, or lacks a required key,
 column, group, or dataset. Anything the contract does not require is ignored,
@@ -28,7 +28,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-CONTRACT_VERSION = 31
+CONTRACT_VERSION = 32
 
 OPTIMIZATION_METADATA_KEY = "optimization_metadata.yml"
 PLOT_DATA_KEY = "portfolio_optimization_plot_data.h5"
@@ -82,6 +82,51 @@ class PortfolioPoint:
 
 
 @dataclass(frozen=True)
+class MaxReturnPortfolio:
+    """
+    The highest-return portfolio feasible under the optimizer's
+    constraints, the top of the efficient frontier (contract v32). The
+    point is annualized (arithmetic) and in percent; weights are in percent,
+    exactly as delivered (use clean_weights() before display).
+    """
+
+    point: PortfolioPoint
+    weights: dict[str, float]
+
+
+@dataclass(frozen=True)
+class PortfolioConstraints:
+    """
+    The optimizer's constraints (contract v32). weight_cap is the largest
+    allowed weight of one ticker, in percent; 100 or more means the cap
+    does not bind.
+    """
+
+    long_only: bool
+    fully_invested: bool
+    weight_cap: float
+
+
+@dataclass(frozen=True)
+class RandomPortfolioStats:
+    """
+    Summary of the random portfolios in the .h5 file (contract v32).
+    Returns are annualized (arithmetic) and in percent; return_std,
+    return_std_uniform_without_cap, and near_frontier_tolerance are in
+    percentage points; near_frontier_share is a fraction from 0 to 1.
+    """
+
+    count: int
+    max_annualized_return: float
+    mean_annualized_return: float
+    equal_weight_annualized_return: float
+    return_std: float
+    return_std_uniform_without_cap: float
+    near_frontier_tolerance: float
+    near_frontier_share: float
+
+
+@dataclass(frozen=True)
 class OptimizationMetadata:
     """
     Contents of optimization_metadata.yml that the frontend uses.
@@ -92,6 +137,12 @@ class OptimizationMetadata:
     belongs to the maximum Sharpe ratio portfolio (`optimum_portfolio` in
     the file) and `min_var_weights` to the minimum variance portfolio
     (contract v28+, None for older files).
+
+    The last four fields come from optional contract v32 sections and are
+    None for older files (or when a section is malformed): the maximum
+    return portfolio, each ticker held on its own (`assets`, ticker to
+    annualized return and risk), the constraints, and the random portfolio
+    statistics.
     """
 
     date_from: str
@@ -106,6 +157,10 @@ class OptimizationMetadata:
     min_var: PortfolioPoint
     annualization_method: str
     periods_per_year: int
+    max_return: MaxReturnPortfolio | None = None
+    assets: dict[str, PortfolioPoint] | None = None
+    constraints: PortfolioConstraints | None = None
+    random_portfolios: RandomPortfolioStats | None = None
 
 
 @dataclass(frozen=True)
@@ -416,6 +471,176 @@ def _parse_weights(node, dotted_path: str) -> dict[str, float]:
         )
 
 
+def _parse_max_return(document: dict) -> MaxReturnPortfolio:
+    """
+    Parse the `max_return_portfolio` section (contract v32).
+
+    Parameters
+    ----------
+    document : dict
+        Parsed optimization_metadata.yml.
+
+    Returns
+    -------
+    MaxReturnPortfolio
+        Its annualized return and risk (percent) and weights.
+    """
+    return MaxReturnPortfolio(
+        point=PortfolioPoint(
+            annualized_return=_get_float(
+                document, "max_return_portfolio.annualized_return"
+            ),
+            risk=_get_float(document, "max_return_portfolio.risk"),
+        ),
+        weights=_parse_weights(
+            _get(document, "max_return_portfolio.weights"),
+            "max_return_portfolio.weights",
+        ),
+    )
+
+
+def _parse_assets(document: dict) -> dict[str, PortfolioPoint]:
+    """
+    Parse the `assets` section (contract v32): each ticker held on its own.
+
+    Ticker keys are looked up directly rather than by dotted path, so a
+    ticker containing a dot cannot be misread as a nested key.
+
+    Parameters
+    ----------
+    document : dict
+        Parsed optimization_metadata.yml.
+
+    Returns
+    -------
+    dict[str, PortfolioPoint]
+        Ticker (uppercase, as in the file) to annualized return and risk
+        in percent.
+    """
+    node = _get(document, "assets")
+    if not isinstance(node, dict) or not node:
+        raise DataLoadError(f"`{OPTIMIZATION_METADATA_KEY}` key `assets` is empty.")
+    assets = {}
+    for ticker, stats in node.items():
+        values = {}
+        for field in ("annualized_return", "risk"):
+            path = f"assets.{ticker}.{field}"
+            if not isinstance(stats, dict) or field not in stats:
+                raise DataLoadError(
+                    f"`{OPTIMIZATION_METADATA_KEY}` is missing key `{path}`."
+                )
+            try:
+                values[field] = float(stats[field])
+            except (TypeError, ValueError):
+                raise DataLoadError(
+                    f"`{OPTIMIZATION_METADATA_KEY}` key `{path}` is not a number."
+                )
+        assets[str(ticker)] = PortfolioPoint(**values)
+    return assets
+
+
+def _parse_constraints(document: dict) -> PortfolioConstraints:
+    """
+    Parse the `constraints` section (contract v32).
+
+    Parameters
+    ----------
+    document : dict
+        Parsed optimization_metadata.yml.
+
+    Returns
+    -------
+    PortfolioConstraints
+        Long-only, fully invested, and the weight cap in percent.
+    """
+    flags = {}
+    for field in ("long_only", "fully_invested"):
+        value = _get(document, f"constraints.{field}")
+        if not isinstance(value, bool):
+            raise DataLoadError(
+                f"`{OPTIMIZATION_METADATA_KEY}` key `constraints.{field}` is not "
+                "true or false."
+            )
+        flags[field] = value
+    return PortfolioConstraints(
+        weight_cap=_get_float(document, "constraints.weight_cap"), **flags
+    )
+
+
+def _parse_random_portfolios(document: dict) -> RandomPortfolioStats:
+    """
+    Parse the `random_portfolios` section (contract v32). Keys the app does
+    not show (`random_seed`, `sampling`) are ignored.
+
+    Parameters
+    ----------
+    document : dict
+        Parsed optimization_metadata.yml.
+
+    Returns
+    -------
+    RandomPortfolioStats
+        The statistics, in the units the contract gives.
+    """
+    fields = (
+        "max_annualized_return",
+        "mean_annualized_return",
+        "equal_weight_annualized_return",
+        "return_std",
+        "return_std_uniform_without_cap",
+        "near_frontier_tolerance",
+        "near_frontier_share",
+    )
+    values = {
+        field: _get_float(document, f"random_portfolios.{field}") for field in fields
+    }
+    if not 0.0 <= values["near_frontier_share"] <= 1.0:
+        raise DataLoadError(
+            f"`{OPTIMIZATION_METADATA_KEY}` key `random_portfolios.near_frontier_share` "
+            "is not a fraction from 0 to 1."
+        )
+    count = _get_float(document, "random_portfolios.count")
+    if not count.is_integer() or count < 1:
+        raise DataLoadError(
+            f"`{OPTIMIZATION_METADATA_KEY}` key `random_portfolios.count` is not a "
+            "positive whole number."
+        )
+    return RandomPortfolioStats(count=int(count), **values)
+
+
+def _optional_section(document: dict, key: str, parser):
+    """
+    Parse an optional section of optimization_metadata.yml, such as the
+    contract v32 sections. A missing section (older files) gives None; a
+    malformed one is ignored with a console message, so the rest of the
+    file can still be shown.
+
+    Parameters
+    ----------
+    document : dict
+        Parsed optimization_metadata.yml.
+
+    key : str
+        Top-level key of the section.
+
+    parser : Callable[[dict], Any]
+        Function that parses the section from the document, raising
+        DataLoadError if it is malformed.
+
+    Returns
+    -------
+    Any | None
+        The parsed section, or None.
+    """
+    if key not in document:
+        return None
+    try:
+        return parser(document)
+    except DataLoadError as error:
+        print(f"Ignoring optional section `{key}`: {error}")
+        return None
+
+
 def load_optimization_metadata(path: str) -> OptimizationMetadata:
     """
     Load and validate optimization_metadata.yml.
@@ -424,7 +649,10 @@ def load_optimization_metadata(path: str) -> OptimizationMetadata:
     return, no Sharpe ratio or minimum variance portfolio) and are rejected.
     The minimum variance portfolio's weights (contract v28) are optional:
     they are None when absent (older files) and, if malformed, ignored
-    with a console message so the rest of the file can still be shown.
+    with a console message so the rest of the file can still be shown. The
+    four contract v32 sections (`max_return_portfolio`, `assets`,
+    `constraints`, `random_portfolios`) are optional in the same way, each
+    on its own.
 
     Parameters
     ----------
@@ -490,6 +718,12 @@ def load_optimization_metadata(path: str) -> OptimizationMetadata:
         ),
         annualization_method=method,
         periods_per_year=int(_get_float(document, "annualization.periods_per_year")),
+        max_return=_optional_section(document, "max_return_portfolio", _parse_max_return),
+        assets=_optional_section(document, "assets", _parse_assets),
+        constraints=_optional_section(document, "constraints", _parse_constraints),
+        random_portfolios=_optional_section(
+            document, "random_portfolios", _parse_random_portfolios
+        ),
     )
 
 
