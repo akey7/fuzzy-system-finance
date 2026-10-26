@@ -551,11 +551,13 @@ def near_frontier_sentence(stats):
     )
 
 
-def portfolio_caption_markdown(metadata):
+def random_sampling_markdown(metadata):
     """
-    Generate the caption under the portfolio optimization plot: the
-    contract's caption on the random portfolios being illustrative, then
-    (for contract v32+ dates) how many of them lie near the frontier.
+    Generate the "Random portfolio sampling" part of the portfolio
+    optimization and random sampling assumptions accordion: the contract's
+    caption on the random portfolios being illustrative, then, for
+    contract v32+ dates, how many of them lie near the frontier and their
+    details (random_portfolios_details_markdown).
 
     Parameters
     ----------
@@ -565,17 +567,29 @@ def portfolio_caption_markdown(metadata):
     Returns
     -------
     str
-        Italic caption markdown.
+        A `###` heading, one paragraph, and (v32+) the details.
     """
     stats = metadata.random_portfolios if metadata is not None else None
     sentences = [RANDOM_PORTFOLIOS_CAPTION, near_frontier_sentence(stats)]
-    return "*" + " ".join(sentence for sentence in sentences if sentence) + "*"
+    lines = [
+        "### Random portfolio sampling",
+        " ".join(sentence for sentence in sentences if sentence),
+    ]
+    details = ""
+    if metadata is not None:
+        details = random_portfolios_details_markdown(metadata)
+    if details:
+        # A blank line ends the paragraph before the details.
+        lines += ["", details]
+    return os.linesep.join(lines)
 
 
 def random_portfolios_details_markdown(metadata):
     """
-    Generate the random portfolio details shown in a collapsed accordion
-    (contract v32): their count, highest and mean return, and the spread
+    Generate the random portfolio details shown at the end of the
+    "Random portfolio sampling" part of the assumptions accordion (contract
+    v32; see random_sampling_markdown): their count, highest and mean
+    return, and the spread
     of their returns, each compared with its reference value and explained
     in one sentence based on the contract's field descriptions.
 
@@ -1342,18 +1356,23 @@ class FSFinance:
         ]
         return os.linesep.join(lines)
 
-    def optimization_assumptions_markdown(self, metadata):
+    def optimization_assumptions_markdown(self, metadata, show_random_sampling):
         """
         Generate the bullet list of assumptions behind the portfolio
         optimization, shown in a collapsed accordion below the weights
         table (whose label serves as the heading). Includes how the two
         portfolios differ when the date has both portfolios' weights
-        (contract v28+).
+        (contract v28+), and, when the plot is shown, a "Random portfolio
+        sampling" part on what the plotted random portfolios mean
+        (random_sampling_markdown).
 
         Parameters
         ----------
         metadata : OptimizationMetadata
             Loaded optimization metadata.
+
+        show_random_sampling : bool
+            True if the plot (and so its random portfolios) is shown.
 
         Returns
         -------
@@ -1379,6 +1398,9 @@ class FSFinance:
                 "portfolio. Both are estimated from about a year of daily data and "
                 "share the same constraints (long-only, capped weights)."
             )
+        if show_random_sampling:
+            # A blank line ends the bullet list before the heading.
+            lines += ["", random_sampling_markdown(m)]
         return os.linesep.join(lines)
 
     def portfolio_consistency_markdown(self, data):
@@ -1733,12 +1755,6 @@ class FSFinance:
                         gr.Markdown(
                             f"**Portfolio plot unavailable.** {data.plot_data_error}"
                         )
-                # The contract's captions for the random portfolios (the
-                # near-frontier share only for v32+ dates). The
-                # investment-advice disclaimer is not repeated here; it is
-                # shown once, at the bottom of the page.
-                if data.plot_data is not None:
-                    gr.Markdown(portfolio_caption_markdown(data.metadata))
 
                 with gr.Row():
                     if data.metadata is not None:
@@ -1784,23 +1800,22 @@ class FSFinance:
 
                 # Collapsed like the Timeseries Analysis accordion, and styled
                 # the same way (bold label via the methods-accordion class).
+                # It includes the contract's wording on the random portfolios
+                # (the near-frontier share only for v32+ dates) when the plot
+                # is shown. The investment-advice disclaimer is not repeated
+                # here; it is shown once, at the bottom of the page.
                 if data.metadata is not None:
                     with gr.Accordion(
-                        "Portfolio optimization assumptions...",
+                        "Portfolio optimization and random sampling assumptions...",
                         open=False,
                         elem_classes=["methods-accordion"],
                     ):
                         gr.Markdown(
-                            self.optimization_assumptions_markdown(data.metadata)
+                            self.optimization_assumptions_markdown(
+                                data.metadata,
+                                show_random_sampling=data.plot_data is not None,
+                            )
                         )
-                    random_md = random_portfolios_details_markdown(data.metadata)
-                    if random_md:
-                        with gr.Accordion(
-                            "Random portfolio details...",
-                            open=False,
-                            elem_classes=["methods-accordion"],
-                        ):
-                            gr.Markdown(random_md)
 
             gr.Markdown(
                 f"Data format: interface contract v{CONTRACT_VERSION}. "

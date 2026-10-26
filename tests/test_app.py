@@ -35,9 +35,10 @@ from app import (
     assets_caption_markdown,
     assets_df,
     constraints_markdown,
+    FSFinance,
     near_frontier_sentence,
-    portfolio_caption_markdown,
     random_portfolios_details_markdown,
+    random_sampling_markdown,
 )
 from data_loading import (
     MaxReturnPortfolio,
@@ -520,14 +521,49 @@ def test_near_frontier_sentence_other_shares():
     assert near_frontier_sentence(None) == ""
 
 
-def test_portfolio_caption_keeps_illustrative_caption():
-    v32 = portfolio_caption_markdown(v32_namespace())
-    assert v32.startswith(f"*{RANDOM_PORTFOLIOS_CAPTION} Less than 0.1%")
-    assert v32.endswith("*")
+def test_random_sampling_markdown_keeps_illustrative_caption():
+    metadata = v32_namespace()
+    lines = random_sampling_markdown(metadata).splitlines()
+    assert lines[0] == "### Random portfolio sampling"
+    assert lines[1].startswith(f"{RANDOM_PORTFOLIOS_CAPTION} Less than 0.1%")
+    # Then, after a blank line, the details (formerly their own accordion).
+    assert lines[2] == ""
+    assert lines[3:] == random_portfolios_details_markdown(metadata).splitlines()
     # Before v32, or without metadata: only the illustrative caption.
-    pre_v32 = f"*{RANDOM_PORTFOLIOS_CAPTION}*"
-    assert portfolio_caption_markdown(v32_namespace(random_portfolios=None)) == pre_v32
-    assert portfolio_caption_markdown(None) == pre_v32
+    for metadata in (v32_namespace(random_portfolios=None), None):
+        assert random_sampling_markdown(metadata).splitlines() == [
+            "### Random portfolio sampling",
+            RANDOM_PORTFOLIOS_CAPTION,
+        ]
+
+
+def assumptions_markdown(metadata, show_random_sampling):
+    # The method uses nothing from the app object, so no FSFinance (which
+    # would create input/) is built.
+    return FSFinance.optimization_assumptions_markdown(
+        None, metadata, show_random_sampling
+    )
+
+
+def test_assumptions_include_random_sampling_when_plot_shown():
+    metadata = v32_namespace(risk_free_rate=4.04, risk_free_rate_date="2026-10-23")
+    lines = assumptions_markdown(metadata, True).splitlines()
+    heading = lines.index("### Random portfolio sampling")
+    # A blank line separates it from the bullet list above, and it comes last.
+    assert lines[heading - 1] == ""
+    assert lines[heading - 2].startswith("- **")
+    assert lines[heading + 1].startswith(RANDOM_PORTFOLIOS_CAPTION)
+    assert lines[heading + 2] == ""
+    assert lines[heading + 3].startswith("Returns are annualized (arithmetic)")
+    assert lines[-1].startswith("- **Return spread:**")
+
+
+def test_assumptions_without_plot_leave_out_random_sampling():
+    metadata = v32_namespace(risk_free_rate=4.04, risk_free_rate_date="2026-10-23")
+    text = assumptions_markdown(metadata, False)
+    assert "Random portfolio sampling" not in text
+    assert RANDOM_PORTFOLIOS_CAPTION not in text
+    assert "**Count:**" not in text
 
 
 def test_random_portfolios_details_markdown():
