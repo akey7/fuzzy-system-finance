@@ -70,6 +70,37 @@ NAIVE_TOOLTIP = "Naive: the most recent observed close"
 TIED_RELATIVE_MAE_LOW = 0.980
 TIED_RELATIVE_MAE_HIGH = 1.020
 
+# Portfolio optimization plot: the contract's suggested wording (v33), with
+# the subtitle broken onto two lines at the semicolon. The contract calls the
+# standard deviation of returns "volatility"; its `risk` keys hold it.
+PORTFOLIO_PLOT_TITLE = "Mean–Variance Portfolio Optimization"
+PORTFOLIO_PLOT_X_LABEL = "Annualized Volatility (σ, %)"
+PORTFOLIO_PLOT_SUBTITLE_TEMPLATE = (
+    "Expected returns and volatility estimated from daily simple returns;\n"
+    "annualized using {periods_per_year} trading days."
+)
+# Subtitle used when annualization.periods_per_year is absent.
+PORTFOLIO_PLOT_SUBTITLE = PORTFOLIO_PLOT_SUBTITLE_TEMPLATE.format(periods_per_year=252)
+RANDOM_PORTFOLIOS_CAPTION = (
+    "Random portfolios are sampled from the same constraints as the optimizer to "
+    "illustrate the feasible region; they are not evidence that the frontier is "
+    "correct."
+)
+# Width and height in inches: room for the square plot area, the titles
+# above it, and the legend to its right. Gradio scales the image to the page
+# width.
+PORTFOLIO_PLOT_SIZE = (9.0, 6.0)
+# Gap in points between the subtitle and the title above it.
+PORTFOLIO_TITLE_GAP = 6
+# Padding in inches that constrained layout keeps around the figure's edges
+# (matplotlib's default is 3/72), so the legend never touches the edge.
+PORTFOLIO_LAYOUT_PAD = 0.1
+# Relative tolerance for treating a capital allocation line point as the max
+# Sharpe ratio point when clipping the line (see capital_allocation_line).
+CAL_TOLERANCE = 1e-9
+# Margin around the plotted data, as a fraction of its range on each axis.
+PORTFOLIO_PLOT_MARGIN = 0.05
+
 
 @dataclass(frozen=True)
 class DateData:
@@ -308,15 +339,17 @@ def date_label(date):
 
 def portfolio_weights_df(metadata):
     """
-    Create a table of each ticker's weight in the maximum Sharpe ratio and
-    minimum variance portfolios. Floating-point noise is cleaned (see
-    data_loading.clean_weights) and weights are shown in percent with two
-    decimals. Rows are sorted by max Sharpe weight, then minimum variance
-    weight (both descending), then ticker.
+    Create a table of each ticker's weight in the maximum Sharpe ratio,
+    minimum variance, and maximum return portfolios. Floating-point noise
+    is cleaned (see data_loading.clean_weights) and weights are shown in
+    percent with two decimals. Rows are sorted by max Sharpe weight, then
+    minimum variance weight, then maximum return weight (all descending),
+    then ticker.
 
-    Dates before contract v28 have no minimum variance weights; the table
-    then has no "Min Variance Weight" column, as the contract asks. A
-    ticker missing from one portfolio's weights shows "n/a" there.
+    A column is shown only when the date has that portfolio's weights:
+    dates before contract v28 have no minimum variance weights, and dates
+    before v32 no maximum return weights. A ticker missing from one
+    portfolio's weights shows "n/a" there.
 
     Parameters
     ----------
@@ -326,37 +359,286 @@ def portfolio_weights_df(metadata):
     Returns
     -------
     pd.DataFrame
-        Columns "Ticker", "Max Sharpe Weight", and (v28+) "Min Variance
-        Weight", with weights as text such as "22.40%".
+        Columns "Ticker", "Max Sharpe Weight", and, when available, "Min
+        Variance Weight" and "Max Return Weight", with weights as text
+        such as "22.40%".
     """
-    max_sharpe = clean_weights(metadata.weights)
-    min_var = (
-        clean_weights(metadata.min_var_weights)
-        if metadata.min_var_weights is not None
-        else None
+    max_return = metadata.max_return
+    candidates = [
+        ("Max Sharpe Weight", metadata.weights),
+        ("Min Variance Weight", metadata.min_var_weights),
+        ("Max Return Weight", max_return.weights if max_return is not None else None),
+    ]
+    columns = [
+        (name, clean_weights(weights))
+        for name, weights in candidates
+        if weights is not None
+    ]
+    tickers = []
+    for _, weights in columns:
+        tickers += [ticker for ticker in weights if ticker not in tickers]
+    df = pd.DataFrame(
+        {name: [weights.get(ticker) for ticker in tickers] for name, weights in columns}
     )
-    tickers = list(max_sharpe)
-    if min_var is not None:
-        tickers += [ticker for ticker in min_var if ticker not in max_sharpe]
-    df = pd.DataFrame({"Ticker": tickers})
-    sort_columns = ["max_sharpe"]
-    df["max_sharpe"] = [max_sharpe.get(ticker) for ticker in tickers]
-    if min_var is not None:
-        df["min_var"] = [min_var.get(ticker) for ticker in tickers]
-        sort_columns.append("min_var")
+    df.insert(0, "Ticker", tickers)
+    names = [name for name, _ in columns]
     df = df.sort_values(
-        by=sort_columns + ["Ticker"],
-        ascending=[False] * len(sort_columns) + [True],
+        by=names + ["Ticker"],
+        ascending=[False] * len(names) + [True],
         na_position="last",
     ).reset_index(drop=True)
+
     # Missing weights are NaN in the column (not None), so check with isna.
     def as_percent(weight):
         return "n/a" if pd.isna(weight) else f"{weight:.2f}%"
 
-    df["Max Sharpe Weight"] = df["max_sharpe"].map(as_percent)
-    if min_var is not None:
-        df["Min Variance Weight"] = df["min_var"].map(as_percent)
-    return df.drop(columns=sort_columns)
+    for name in names:
+        df[name] = df[name].map(as_percent)
+    return df
+
+
+def assets_df(metadata):
+    """
+    Create a table of each ticker held on its own (contract v32 `assets`):
+    annualized (arithmetic) return and volatility, in percent, rounded to
+    two decimals. Values stay numbers so the table sorts numerically when
+    a column header is clicked. Rows are sorted by return, highest first.
+
+    Parameters
+    ----------
+    metadata : OptimizationMetadata
+        Loaded optimization metadata.
+
+    Returns
+    -------
+    pd.DataFrame | None
+        Columns "Ticker", "Annualized return (%)", and "Annualized
+        volatility (σ, %)", or None if the date has no `assets` section.
+    """
+    if metadata.assets is None:
+        return None
+    df = pd.DataFrame(
+        {
+            "Ticker": list(metadata.assets),
+            "Annualized return (%)": [
+                round(point.annualized_return, 2) for point in metadata.assets.values()
+            ],
+            "Annualized volatility (σ, %)": [
+                round(point.risk, 2) for point in metadata.assets.values()
+            ],
+        }
+    )
+    return df.sort_values(
+        by=["Annualized return (%)", "Ticker"], ascending=[False, True]
+    ).reset_index(drop=True)
+
+
+def weight_cap_binds(constraints):
+    """
+    Return True if the per-ticker weight cap rules out holding any single
+    ticker on its own (a cap below 100%).
+
+    Parameters
+    ----------
+    constraints : PortfolioConstraints | None
+        The date's constraints, if available (contract v32).
+
+    Returns
+    -------
+    bool
+        False when the cap is 100% or more, or unknown.
+    """
+    return constraints is not None and constraints.weight_cap < 100
+
+
+def constraints_markdown(constraints):
+    """
+    Describe the optimizer's constraints in one line, from the contract
+    v32 `constraints` section. No constraint value is assumed.
+
+    Parameters
+    ----------
+    constraints : PortfolioConstraints | None
+        The date's constraints, if available.
+
+    Returns
+    -------
+    str
+        E.g. "**Constraints:** long-only (no short positions), fully
+        invested (weights sum to 100%), at most 40.0% in any one ticker.",
+        or an empty string if the date has no constraints section.
+    """
+    if constraints is None:
+        return ""
+    parts = []
+    if constraints.long_only:
+        parts.append("long-only (no short positions)")
+    if constraints.fully_invested:
+        parts.append("fully invested (weights sum to 100%)")
+    if weight_cap_binds(constraints):
+        parts.append(f"at most {constraints.weight_cap:.1f}% in any one ticker")
+    else:
+        parts.append("no binding per-ticker weight cap")
+    return f"**Constraints:** {', '.join(parts)}."
+
+
+def assets_caption_markdown(constraints):
+    """
+    Explain the individual assets table: why single tickers are listed
+    rather than plotted as candidate portfolios.
+
+    Parameters
+    ----------
+    constraints : PortfolioConstraints | None
+        The date's constraints, if available.
+
+    Returns
+    -------
+    str
+        Caption markdown.
+    """
+    text = (
+        "Each ticker held on its own, estimated from the same daily data as the "
+        "optimization (annualized, arithmetic, in percent). "
+    )
+    if weight_cap_binds(constraints):
+        text += (
+            f"With at most {constraints.weight_cap:.1f}% allowed in any one ticker, "
+            "a single ticker is not a feasible portfolio, so the tickers are listed "
+            "here rather than plotted as candidate portfolios."
+        )
+    else:
+        text += "They are listed for reference rather than plotted as candidate portfolios."
+    return text + (
+        " They show which tickers pull the random portfolios and the frontier "
+        "toward higher or lower return and volatility."
+    )
+
+
+def near_frontier_sentence(stats):
+    """
+    Fill in the contract's suggested sentence on how many random portfolios
+    lie near the efficient frontier (contract v32). A share above zero that
+    would round to 0.0% is written as "less than 0.1%".
+
+    Parameters
+    ----------
+    stats : RandomPortfolioStats | None
+        The date's random portfolio statistics, if available.
+
+    Returns
+    -------
+    str
+        The sentence, or an empty string for dates before v32.
+    """
+    if stats is None:
+        return ""
+    share = stats.near_frontier_share * 100
+    count = f"{stats.count:,}"
+    tolerance = stats.near_frontier_tolerance
+    unit = "percentage point" if tolerance == 1 else "percentage points"
+    near = f"within {tolerance:g} {unit} of the efficient frontier"
+    if share == 0:
+        lead = f"None of the {count} random portfolios lie {near}."
+    elif share < 0.05:
+        lead = f"Less than 0.1% of the {count} random portfolios lie {near}."
+    else:
+        lead = f"Only {share:.1f}% of the {count} random portfolios lie {near}."
+    return (
+        f"{lead} Uniform draws cluster around the equal-weight portfolio and rarely "
+        "reach the corners of the constraint set, where the frontier's high-return "
+        "portfolios are."
+    )
+
+
+def random_sampling_markdown(metadata):
+    """
+    Generate the "Random portfolio sampling" part of the portfolio
+    optimization and random sampling assumptions accordion: the contract's
+    caption on the random portfolios being illustrative, then, for
+    contract v32+ dates, how many of them lie near the frontier and their
+    details (random_portfolios_details_markdown).
+
+    Parameters
+    ----------
+    metadata : OptimizationMetadata | None
+        Loaded optimization metadata, if available.
+
+    Returns
+    -------
+    str
+        A `###` heading, one paragraph, and (v32+) the details.
+    """
+    stats = metadata.random_portfolios if metadata is not None else None
+    sentences = [RANDOM_PORTFOLIOS_CAPTION, near_frontier_sentence(stats)]
+    lines = [
+        "### Random portfolio sampling",
+        " ".join(sentence for sentence in sentences if sentence),
+    ]
+    details = ""
+    if metadata is not None:
+        details = random_portfolios_details_markdown(metadata)
+    if details:
+        # A blank line ends the paragraph before the details.
+        lines += ["", details]
+    return os.linesep.join(lines)
+
+
+def random_portfolios_details_markdown(metadata):
+    """
+    Generate the random portfolio details shown at the end of the
+    "Random portfolio sampling" part of the assumptions accordion (contract
+    v32; see random_sampling_markdown): their count, highest and mean
+    return, and the spread
+    of their returns, each compared with its reference value and explained
+    in one sentence based on the contract's field descriptions.
+
+    Parameters
+    ----------
+    metadata : OptimizationMetadata
+        Loaded optimization metadata.
+
+    Returns
+    -------
+    str
+        Markdown, or an empty string if the date has no random portfolio
+        statistics.
+    """
+    stats = metadata.random_portfolios
+    if stats is None:
+        return ""
+    highest = (
+        f"- **Highest return:** {stats.max_annualized_return:.2f}% among the random "
+        "portfolios"
+    )
+    if metadata.max_return is not None:
+        highest += (
+            f", vs. {metadata.max_return.point.annualized_return:.2f}% for the maximum "
+            "return portfolio (the top of the efficient frontier)"
+        )
+    highest += (
+        ". Uniform draws rarely reach the corners of the constraint set, where the "
+        "highest-return portfolios are."
+    )
+    lines = [
+        "Returns are annualized (arithmetic), in percent; spreads are in percentage "
+        "points.",
+        f"- **Count:** {stats.count:,} random portfolios, drawn uniformly from the "
+        "optimizer's constraint set.",
+        highest,
+        f"- **Mean return:** {stats.mean_annualized_return:.2f}% for the random "
+        f"portfolios, vs. {stats.equal_weight_annualized_return:.2f}% for the "
+        "equal-weight portfolio. Uniform draws average to equal weights, so the "
+        "cloud is centered on the equal-weight portfolio; the two agree up to "
+        "sampling error.",
+        f"- **Return spread:** the random portfolios' returns have a standard "
+        f"deviation of {stats.return_std:.2f} percentage points, vs. "
+        f"{stats.return_std_uniform_without_cap:.2f} expected for uniform draws "
+        "without a weight cap. That spread is roughly the tickers' own spread "
+        "divided by √(n + 1) for n tickers, and a binding cap narrows it further, "
+        "so the measured value is normally smaller.",
+    ]
+    return os.linesep.join(lines)
 
 
 def noon_timestamps(dates):
@@ -383,6 +665,244 @@ def noon_timestamps(dates):
     return pd.to_datetime(
         dates.dt.strftime("%Y-%m-%d") + " 12:00", format="%Y-%m-%d %H:%M"
     )
+
+
+def capital_allocation_line(cal_group, max_sharpe_ratio):
+    """
+    Clip the capital allocation line (the `tangency_line` group of the
+    .h5 file) so it runs from (0, risk-free rate) to the max Sharpe ratio
+    point and no further, since portfolios beyond it would need leverage.
+
+    Since contract v31 the backend's line already ends there; date folders
+    written before v31 extend it to the largest efficient-frontier risk.
+    Clipping both is harmless: points with risk below the max Sharpe ratio
+    risk are kept (points within CAL_TOLERANCE of it count as that point),
+    and the line ends exactly at the max Sharpe ratio point. Nothing is
+    extrapolated; the only added point is the max Sharpe ratio point from
+    the file.
+
+    Parameters
+    ----------
+    cal_group : XYData
+        The capital allocation line as stored in the file (the
+        `tangency_line` group, whose name did not change).
+
+    max_sharpe_ratio : XYData
+        The `max_sharpe_ratio` group (one point).
+
+    Returns
+    -------
+    XYData
+        The clipped line, sorted by risk, ending at the max Sharpe ratio
+        point.
+    """
+    x_end = float(max_sharpe_ratio.xs[0])
+    y_end = float(max_sharpe_ratio.ys[0])
+    tolerance = CAL_TOLERANCE * max(1.0, abs(x_end))
+    xs = np.asarray(cal_group.xs, dtype=float)
+    ys = np.asarray(cal_group.ys, dtype=float)
+    keep = np.isfinite(xs) & np.isfinite(ys) & (xs < x_end - tolerance)
+    order = np.argsort(xs[keep], kind="stable")
+    return XYData(
+        xs=np.append(xs[keep][order], x_end),
+        ys=np.append(ys[keep][order], y_end),
+    )
+
+
+def portfolio_plot_subtitle(periods_per_year):
+    """
+    Return the contract's suggested subtitle for the portfolio optimization
+    plot, with the trading days per year read from the metadata.
+
+    Parameters
+    ----------
+    periods_per_year : int | None
+        `annualization.periods_per_year` from optimization_metadata.yml, or
+        None if it is not available.
+
+    Returns
+    -------
+    str
+        The two-line subtitle; it names 252 trading days when
+        periods_per_year is None.
+    """
+    if periods_per_year is None:
+        return PORTFOLIO_PLOT_SUBTITLE
+    return PORTFOLIO_PLOT_SUBTITLE_TEMPLATE.format(periods_per_year=periods_per_year)
+
+
+def portfolio_plot_limits(series):
+    """
+    Compute axis limits that fit the plotted data, so no empty area is left
+    where an unclipped capital allocation line used to extend. NaN points
+    are ignored, and the risk axis always includes 0, where the capital
+    allocation line starts.
+
+    Parameters
+    ----------
+    series : list[XYData]
+        Every series drawn on the plot (the capital allocation line already
+        clipped).
+
+    Returns
+    -------
+    tuple[tuple[float, float], tuple[float, float]]
+        (x limits, y limits), each padded by PORTFOLIO_PLOT_MARGIN of the
+        data's range.
+    """
+    xs = np.concatenate([np.asarray(s.xs, dtype=float) for s in series])
+    ys = np.concatenate([np.asarray(s.ys, dtype=float) for s in series])
+    finite = np.isfinite(xs) & np.isfinite(ys)
+    xs, ys = xs[finite], ys[finite]
+
+    def padded(low, high):
+        margin = PORTFOLIO_PLOT_MARGIN * (high - low) if high > low else 1.0
+        return (float(low - margin), float(high + margin))
+
+    return padded(min(0.0, xs.min()), xs.max()), padded(ys.min(), ys.max())
+
+
+def portfolio_optimization_figure(plot_data, metadata):
+    """
+    Plot the portfolio optimization: the efficient frontier, the capital
+    allocation line clipped at the max Sharpe ratio point, the random
+    portfolios, the max Sharpe ratio and minimum variance portfolios, and
+    (for contract v32+ dates) the maximum return portfolio.
+    All values are annualized (arithmetic) and in percent, used exactly as
+    the files give them. NaN points on the efficient frontier break the
+    line.
+
+    The plot area is square. The title and subtitle are left-aligned with
+    the y-axis: the subtitle is the axes' left title and the title is
+    placed just above it. The data date is not repeated on the figure; the
+    date dropdown at the top of the page shows it. The legend sits right
+    of the axes, with
+    opaque keys so the faint random portfolios are still visible there.
+    The figure uses constrained layout, so the legend and titles fit
+    inside the saved image (Gradio saves it without tight bounding boxes).
+    The figure is created without pyplot, which is not thread-safe.
+
+    Parameters
+    ----------
+    plot_data : dict[str, XYData]
+        Loaded plot data.
+
+    metadata : OptimizationMetadata | None
+        Loaded optimization metadata, for the risk-free rate, the trading
+        days per year, and the maximum return portfolio. The plot is still
+        drawn without it, with less detailed labels.
+
+    Returns
+    -------
+    Figure
+        A Matplotlib Figure object to be displayed on the UI.
+    """
+    cal_label = "Capital allocation line"
+    if metadata is not None:
+        cal_label += f" (risk-free rate {metadata.risk_free_rate:.2f}%)"
+    cal = capital_allocation_line(
+        plot_data["tangency_line"], plot_data["max_sharpe_ratio"]
+    )
+    fig = Figure(figsize=PORTFOLIO_PLOT_SIZE, layout="constrained")
+    fig.get_layout_engine().set(w_pad=PORTFOLIO_LAYOUT_PAD, h_pad=PORTFOLIO_LAYOUT_PAD)
+    ax = fig.subplots(nrows=1, ncols=1)
+    ax.plot(
+        plot_data["efficient_frontier"].xs,
+        plot_data["efficient_frontier"].ys,
+        c="#009E73",
+        zorder=1,
+        label="Efficient frontier",
+    )
+    ax.plot(cal.xs, cal.ys, c="#F0E442", zorder=1, label=cal_label)
+    ax.scatter(
+        plot_data["simulated_portfolios"].xs,
+        plot_data["simulated_portfolios"].ys,
+        alpha=0.1,
+        s=2,
+        c="#0072B2",
+        zorder=10,
+        label="Random portfolios",
+    )
+    ax.scatter(
+        plot_data["max_sharpe_ratio"].xs,
+        plot_data["max_sharpe_ratio"].ys,
+        c="#CC79A7",
+        marker="*",
+        s=200,
+        zorder=10,
+        label="Max Sharpe ratio portfolio",
+    )
+    ax.scatter(
+        plot_data["min_var_portfolio"].xs,
+        plot_data["min_var_portfolio"].ys,
+        c="#E69F00",
+        zorder=10,
+        label="Minimum variance portfolio",
+    )
+    plotted = [
+        plot_data["efficient_frontier"],
+        cal,
+        plot_data["simulated_portfolios"],
+        plot_data["max_sharpe_ratio"],
+        plot_data["min_var_portfolio"],
+    ]
+    # The top of the efficient frontier, from the YAML (contract v32; the
+    # .h5 file has no group for it). Same units as the .h5 points.
+    max_return = getattr(metadata, "max_return", None)
+    if max_return is not None:
+        point = XYData(
+            xs=np.array([max_return.point.risk]),
+            ys=np.array([max_return.point.annualized_return]),
+        )
+        ax.scatter(
+            point.xs,
+            point.ys,
+            c="#D55E00",
+            marker="^",
+            s=80,
+            zorder=10,
+            label="Maximum return portfolio",
+        )
+        plotted.append(point)
+    xlim, ylim = portfolio_plot_limits(plotted)
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
+    ax.set_box_aspect(1)
+    ax.set_xlabel(PORTFOLIO_PLOT_X_LABEL)
+    ax.set_ylabel("Annualized Arithmetic Expected Return (%)")
+    subtitle = ax.set_title(
+        portfolio_plot_subtitle(getattr(metadata, "periods_per_year", None)),
+        loc="left",
+        fontsize="small",
+    )
+    # Anchored to the subtitle's top-left corner, so the title starts at
+    # the y-axis too and never overlaps a two-line subtitle. As an axes
+    # child it is included in the constrained layout.
+    ax.annotate(
+        PORTFOLIO_PLOT_TITLE,
+        xy=(0, 1),
+        xycoords=subtitle,
+        xytext=(0, PORTFOLIO_TITLE_GAP),
+        textcoords="offset points",
+        ha="left",
+        va="bottom",
+        fontsize="large",
+        fontweight="bold",
+    )
+    # Anchored at the axes' top-right corner with a gap in font units, not
+    # a fraction of the axes width: the square aspect resizes the axes
+    # after the layout makes room for the legend, and a width-relative gap
+    # would then push the legend past the figure's edge.
+    legend = ax.legend(
+        loc="upper left",
+        bbox_to_anchor=(1.0, 1.0),
+        borderaxespad=0.8,
+        fontsize="small",
+    )
+    # Only the legend keys; the plotted points keep their transparency.
+    for handle in legend.legend_handles:
+        handle.set_alpha(1.0)
+    return fig
 
 
 class FSFinance:
@@ -666,8 +1186,9 @@ class FSFinance:
         for the tooltip, including each ARIMA forecast's own (p, d, q).
 
         "Date" is a real timestamp so the plot's date axis can thin its
-        labels, with each close placed at noon (see noon_timestamps). "Trading day" is the same date as text with its weekday,
-        e.g. "2026-10-09 (Fri)", for the tooltip.
+        labels, with each close placed at noon (see noon_timestamps).
+        "Trading day" is the same date as text with its weekday, e.g.
+        "2026-10-09 (Fri)", for the tooltip.
 
         Parameters
         ----------
@@ -793,7 +1314,8 @@ class FSFinance:
         """
         Generate markdown of optimization metadata: annualized
         performance of the maximum Sharpe ratio and minimum variance
-        portfolios, and how returns are computed. The price history window
+        portfolios, and of the maximum return portfolio for contract v32+
+        dates, and how returns are computed. The price history window
         is shown above the weights table (price_history_markdown) and the
         assumptions in an accordion below it
         (optimization_assumptions_markdown).
@@ -812,11 +1334,21 @@ class FSFinance:
         lines = [
             "## Maximum Sharpe ratio portfolio",
             f"- Annualized return: {m.optimum.annualized_return:.2f}%",
-            f"- Annualized risk (σ): {m.optimum.risk:.2f}%",
+            f"- Annualized volatility (σ): {m.optimum.risk:.2f}%",
             f"- Annualized Sharpe ratio: {m.sharpe_ratio:.2f}",
             "## Minimum variance portfolio",
             f"- Annualized return: {m.min_var.annualized_return:.2f}%",
-            f"- Annualized risk (σ): {m.min_var.risk:.2f}%",
+            f"- Annualized volatility (σ): {m.min_var.risk:.2f}%",
+        ]
+        if m.max_return is not None:
+            # Contract v32: the top of the efficient frontier. The file has
+            # no Sharpe ratio for it, and none is computed here.
+            lines += [
+                "## Maximum return portfolio",
+                f"- Annualized return: {m.max_return.point.annualized_return:.2f}%",
+                f"- Annualized volatility (σ): {m.max_return.point.risk:.2f}%",
+            ]
+        lines += [
             "## Returns",
             "- Simple (not log) daily returns, annualized arithmetically: "
             f"mean daily return × {m.periods_per_year} and daily σ × √{m.periods_per_year}. "
@@ -824,18 +1356,23 @@ class FSFinance:
         ]
         return os.linesep.join(lines)
 
-    def optimization_assumptions_markdown(self, metadata):
+    def optimization_assumptions_markdown(self, metadata, show_random_sampling):
         """
         Generate the bullet list of assumptions behind the portfolio
         optimization, shown in a collapsed accordion below the weights
         table (whose label serves as the heading). Includes how the two
         portfolios differ when the date has both portfolios' weights
-        (contract v28+).
+        (contract v28+), and, when the plot is shown, a "Random portfolio
+        sampling" part on what the plotted random portfolios mean
+        (random_sampling_markdown).
 
         Parameters
         ----------
         metadata : OptimizationMetadata
             Loaded optimization metadata.
+
+        show_random_sampling : bool
+            True if the plot (and so its random portfolios) is shown.
 
         Returns
         -------
@@ -849,7 +1386,7 @@ class FSFinance:
             "noisy and sensitive to the dates chosen.",
             f"- **Risk-free rate:** {m.risk_free_rate:.2f}% per year, the 3-month U.S. "
             f"Treasury bill rate (FRED series DTB3) observed {m.risk_free_rate_date}.",
-            "- **Sharpe ratio:** (annualized return − risk-free rate) / annualized risk.",
+            "- **Sharpe ratio:** (annualized return − risk-free rate) / annualized volatility.",
             "- **Weights** are in percent and rounded, so they may not sum to exactly 100%.",
         ]
         if m.min_var_weights is not None:
@@ -861,6 +1398,9 @@ class FSFinance:
                 "portfolio. Both are estimated from about a year of daily data and "
                 "share the same constraints (long-only, capped weights)."
             )
+        if show_random_sampling:
+            # A blank line ends the bullet list before the heading.
+            lines += ["", random_sampling_markdown(m)]
         return os.linesep.join(lines)
 
     def portfolio_consistency_markdown(self, data):
@@ -912,76 +1452,6 @@ class FSFinance:
         lines = [f"**Warning:** the files for {data.date} may describe another date."]
         lines += [f"- {warning}" for warning in warnings]
         return os.linesep.join(lines)
-
-    def plot_portfolio_optimization(self, plot_data, metadata):
-        """
-        Plot a figure of the portfolio optimization. All values are
-        annualized (arithmetic) and in percent. NaN points on the
-        efficient frontier (infeasible target returns) break the line.
-        The figure is created without pyplot, which is not thread-safe.
-
-        Parameters
-        ----------
-        plot_data : dict[str, XYData]
-            Loaded plot data.
-
-        metadata : OptimizationMetadata | None
-            Loaded optimization metadata, used to label the risk-free rate.
-
-        Returns
-        -------
-        Figure
-            A Matplotlib Figure object to be displayed on the UI.
-        """
-        tangency_label = "Capital market line"
-        if metadata is not None:
-            tangency_label += f" (risk-free rate {metadata.risk_free_rate:.2f}%)"
-        fig = Figure()
-        ax = fig.subplots(nrows=1, ncols=1)
-        ax.plot(
-            plot_data["efficient_frontier"].xs,
-            plot_data["efficient_frontier"].ys,
-            c="#009E73",
-            zorder=1,
-            label="Efficient frontier",
-        )
-        ax.plot(
-            plot_data["tangency_line"].xs,
-            plot_data["tangency_line"].ys,
-            c="#F0E442",
-            zorder=1,
-            label=tangency_label,
-        )
-        ax.scatter(
-            plot_data["simulated_portfolios"].xs,
-            plot_data["simulated_portfolios"].ys,
-            alpha=0.1,
-            s=2,
-            c="#0072B2",
-            zorder=10,
-            label="Random long-only portfolios",
-        )
-        ax.scatter(
-            plot_data["max_sharpe_ratio"].xs,
-            plot_data["max_sharpe_ratio"].ys,
-            c="#CC79A7",
-            marker="*",
-            s=200,
-            zorder=10,
-            label="Max Sharpe ratio portfolio",
-        )
-        ax.scatter(
-            plot_data["min_var_portfolio"].xs,
-            plot_data["min_var_portfolio"].ys,
-            c="#E69F00",
-            zorder=10,
-            label="Minimum variance portfolio",
-        )
-        ax.set_xlabel("Annualized Risk (σ, %)")
-        ax.set_ylabel("Annualized Return (%)")
-        ax.set_title("Portfolio Optimization (annualized, arithmetic)")
-        ax.legend(fontsize="small")
-        return fig
 
     def forecast_metrics_markdown(self, forecasts_metadata, unavailable_text, ticker):
         """
@@ -1169,7 +1639,8 @@ class FSFinance:
         """
         Run the Gradio app.
 
-        The page is a single column: the date dropdown, then the Timeseries
+        The page is a single column: the date dropdown and the individual
+        assets accordion, then the Timeseries
         Analysis section, then the Portfolio Optimization section, each under
         a `#` heading. On every page load the available dates are listed and
         the newest is selected. Changing the date reloads both sections from
@@ -1197,7 +1668,8 @@ class FSFinance:
             # Available dates and marker ETags for this visitor's page load.
             marker_state = gr.State({})
             gr.Markdown(
-                "Select trading day (default is latest available data)",
+                "Trading day selection (default is most recent day) and individual "
+                "asset information",
                 elem_classes=["date-title"],
             )
             date_dropdown = gr.Dropdown(
@@ -1208,6 +1680,37 @@ class FSFinance:
             )
             listing_md = gr.Markdown("")
             date_warning_md = gr.Markdown("")
+
+            # Each ticker held on its own (contract v32), under the date
+            # selector because it concerns both sections. A table rather
+            # than points on the portfolio plot: under a binding weight cap
+            # single tickers are not feasible portfolios. Numeric columns, so
+            # clicking a header sorts by value. Collapsed and styled like the
+            # other accordions; its label serves as the heading. Absent for
+            # dates before v32 or without optimization metadata.
+            @gr.render(
+                inputs=[date_dropdown, marker_state],
+                triggers=[date_dropdown.change],
+            )
+            def render_assets(date, markers):
+                data = self.selected_data(date, markers)
+                if data is None or data.metadata is None:
+                    return
+                assets = assets_df(data.metadata)
+                if assets is None:
+                    return
+                with gr.Accordion(
+                    "Information about individual assets...",
+                    open=False,
+                    elem_classes=["methods-accordion"],
+                ):
+                    gr.Markdown(assets_caption_markdown(data.metadata.constraints))
+                    gr.DataFrame(
+                        value=assets,
+                        datatype=["str", "number", "number"],
+                        row_count=len(assets),
+                        interactive=False,
+                    )
 
             # Both sections are stacked on one page: Timeseries Analysis on
             # top, Portfolio Optimization below. Inner headings start at ##
@@ -1277,7 +1780,7 @@ class FSFinance:
                 with gr.Row():
                     if data.plot_data is not None:
                         gr.Plot(
-                            self.plot_portfolio_optimization(
+                            portfolio_optimization_figure(
                                 data.plot_data, data.metadata
                             )
                         )
@@ -1290,6 +1793,11 @@ class FSFinance:
                     if data.metadata is not None:
                         with gr.Column():
                             gr.Markdown(self.price_history_markdown(data.metadata))
+                            constraints_md = constraints_markdown(
+                                data.metadata.constraints
+                            )
+                            if constraints_md:
+                                gr.Markdown(constraints_md)
                             weights_df = portfolio_weights_df(data.metadata)
                             # Read-only results. A plain row count (not
                             # Gradio's default tuple) avoids a deprecation
@@ -1310,14 +1818,21 @@ class FSFinance:
 
                 # Collapsed like the Timeseries Analysis accordion, and styled
                 # the same way (bold label via the methods-accordion class).
+                # It includes the contract's wording on the random portfolios
+                # (the near-frontier share only for v32+ dates) when the plot
+                # is shown. The investment-advice disclaimer is not repeated
+                # here; it is shown once, at the bottom of the page.
                 if data.metadata is not None:
                     with gr.Accordion(
-                        "Portfolio optimization assumptions...",
+                        "Portfolio optimization and random sampling assumptions...",
                         open=False,
                         elem_classes=["methods-accordion"],
                     ):
                         gr.Markdown(
-                            self.optimization_assumptions_markdown(data.metadata)
+                            self.optimization_assumptions_markdown(
+                                data.metadata,
+                                show_random_sampling=data.plot_data is not None,
+                            )
                         )
 
             gr.Markdown(

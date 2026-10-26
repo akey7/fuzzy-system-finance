@@ -33,7 +33,7 @@ The backend does all the modeling and publishes its results; this app only lists
    │
    └─ 3. DISPLAY   per visitor (selected date and ticker in Gradio state)
           # Timeseries Analysis      actual, ARIMA, and naive; backend metrics
-          # Portfolio Optimization   frontier, simulated portfolios, weights
+          # Portfolio Optimization   frontier, random portfolios, weights, assets
           disclaimer, once at the bottom
             │
             ▼

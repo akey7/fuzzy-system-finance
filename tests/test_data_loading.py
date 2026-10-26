@@ -209,6 +209,138 @@ def test_metadata_rejects_malformed_max_sharpe_weights(tmp_path):
         load_optimization_metadata(path)
 
 
+def v32_metadata() -> dict:
+    """
+    Return a contract v32 optimization_metadata.yml document: the v7
+    document plus the four optional v32 sections, with unknown keys inside
+    them that readers must ignore.
+    """
+    document = v7_metadata()
+    document["assets"] = {
+        "FXE": {"annualized_return": -2.1, "risk": 7.5},
+        "QQQ": {"annualized_return": 30.2, "risk": 18.0, "future_stat": 1},
+        "XLE": {"annualized_return": 38.9, "risk": 19.4},
+    }
+    document["constraints"] = {
+        "fully_invested": True,
+        "long_only": True,
+        "weight_cap": 40.00000000000001,
+        "weight_cap_multiple": 4,
+    }
+    document["max_return_portfolio"] = {
+        "annualized_return": 38.1,
+        "risk": 15.4,
+        "weights": {"FXE": 1e-15, "QQQ": 60.0, "XLE": 39.99999999999998},
+    }
+    document["random_portfolios"] = {
+        "count": 10000,
+        "equal_weight_annualized_return": 11.2,
+        "max_annualized_return": 32.2,
+        "mean_annualized_return": 11.3,
+        "near_frontier_share": 0.0004,
+        "near_frontier_tolerance": 1.0,
+        "random_seed": 20261025,
+        "return_std": 5.9,
+        "return_std_uniform_without_cap": 6.4,
+        "sampling": "uniform on the constraint set",
+    }
+    return document
+
+
+def test_metadata_loads_v32_sections(tmp_path):
+    metadata = load_optimization_metadata(write_yaml(tmp_path / "m.yml", v32_metadata()))
+    assert metadata.max_return.point.annualized_return == 38.1
+    assert metadata.max_return.point.risk == 15.4
+    # Weights exactly as delivered; noise is cleaned only for display.
+    assert metadata.max_return.weights == {
+        "FXE": 1e-15,
+        "QQQ": 60.0,
+        "XLE": 39.99999999999998,
+    }
+    # Uppercase ticker keys, as in the file.
+    assert set(metadata.assets) == {"FXE", "QQQ", "XLE"}
+    assert metadata.assets["XLE"].annualized_return == 38.9
+    assert metadata.assets["XLE"].risk == 19.4
+    assert metadata.constraints.long_only is True
+    assert metadata.constraints.fully_invested is True
+    assert metadata.constraints.weight_cap == 40.00000000000001
+    stats = metadata.random_portfolios
+    assert stats.count == 10000 and isinstance(stats.count, int)
+    assert stats.max_annualized_return == 32.2
+    assert stats.mean_annualized_return == 11.3
+    assert stats.equal_weight_annualized_return == 11.2
+    assert stats.return_std == 5.9
+    assert stats.return_std_uniform_without_cap == 6.4
+    assert stats.near_frontier_tolerance == 1.0
+    assert stats.near_frontier_share == 0.0004
+
+
+def test_metadata_v32_sections_absent_before_v32(tmp_path):
+    metadata = load_optimization_metadata(write_yaml(tmp_path / "m.yml", v7_metadata()))
+    assert metadata.max_return is None
+    assert metadata.assets is None
+    assert metadata.constraints is None
+    assert metadata.random_portfolios is None
+    # The rest of the file is unaffected.
+    assert metadata.sharpe_ratio == 2.435
+
+
+@pytest.mark.parametrize(
+    "section, bad_value",
+    [
+        ("max_return_portfolio", {"annualized_return": 38.1, "risk": 15.4}),
+        (
+            "max_return_portfolio",
+            {"annualized_return": "high", "risk": 15.4, "weights": {"QQQ": 100}},
+        ),
+        ("assets", {}),
+        ("assets", {"QQQ": {"annualized_return": 30.2}}),
+        ("assets", {"QQQ": [1, 2]}),
+        ("constraints", {"long_only": "yes", "fully_invested": True, "weight_cap": 40}),
+        ("constraints", {"long_only": True, "fully_invested": True}),
+        ("random_portfolios", {"count": 10000}),
+        ("random_portfolios", "not a mapping"),
+    ],
+)
+def test_metadata_ignores_malformed_v32_section(tmp_path, section, bad_value):
+    # Each v32 section is optional on its own: a malformed one is dropped,
+    # and the other sections and the rest of the file still load.
+    document = v32_metadata()
+    document[section] = bad_value
+    metadata = load_optimization_metadata(write_yaml(tmp_path / "m.yml", document))
+    fields = {
+        "max_return_portfolio": "max_return",
+        "assets": "assets",
+        "constraints": "constraints",
+        "random_portfolios": "random_portfolios",
+    }
+    for key, field in fields.items():
+        if key == section:
+            assert getattr(metadata, field) is None
+        else:
+            assert getattr(metadata, field) is not None
+    assert metadata.sharpe_ratio == 2.435
+
+
+@pytest.mark.parametrize(
+    "field, value", [("near_frontier_share", 1.5), ("count", 10.5), ("count", 0)]
+)
+def test_metadata_ignores_out_of_range_random_portfolios(tmp_path, field, value):
+    document = v32_metadata()
+    document["random_portfolios"][field] = value
+    metadata = load_optimization_metadata(write_yaml(tmp_path / "m.yml", document))
+    assert metadata.random_portfolios is None
+    assert metadata.max_return is not None
+
+
+def test_metadata_asset_ticker_with_dot(tmp_path):
+    # Ticker keys are read directly, so a dot is not a nested key.
+    document = v32_metadata()
+    document["assets"]["BRK.B"] = {"annualized_return": 12.0, "risk": 16.0}
+    metadata = load_optimization_metadata(write_yaml(tmp_path / "m.yml", document))
+    assert metadata.assets["BRK.B"].risk == 16.0
+
+
 def test_clean_weights_zeroes_noise_only():
     cleaned = clean_weights(
         {"FXE": 3.055998668072217e-14, "XLE": 39.99999999999994, "NEG": -1e-9}
