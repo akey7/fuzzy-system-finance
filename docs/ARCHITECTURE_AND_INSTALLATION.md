@@ -32,8 +32,9 @@ The backend does all the modeling and publishes its results; this app only lists
    │      in-memory cache shared by all visitors, keyed by date + ETags
    │
    └─ 3. DISPLAY   per visitor (selected date and ticker in Gradio state)
+          date selector              date dropdown; individual assets accordion
           # Timeseries Analysis      actual, ARIMA, and naive; backend metrics
-          # Portfolio Optimization   frontier, random portfolios, weights, assets
+          # Portfolio Optimization   frontier, random portfolios, weights
           disclaimer, once at the bottom
             │
             ▼
